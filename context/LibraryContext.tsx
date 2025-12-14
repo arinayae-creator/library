@@ -1,12 +1,13 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Book, Patron, Transaction, Subject, FineTransaction, CirculationSession, CatalogingSession, MarcTagDefinition, PublicPage, AuthorityRecord, Worksheet, Item } from '../types';
+import { Book, Patron, Transaction, Subject, FineTransaction, CirculationSession, CatalogingSession, MarcTagDefinition, PublicPage, AuthorityRecord, Worksheet, Item, AcquisitionRequest } from '../types';
 import { api } from '../services/api';
 
 interface LibraryContextType {
   books: Book[];
   patrons: Patron[];
   subjects: Subject[];
+  acquisitionRequests: AcquisitionRequest[];
   isLoading: boolean;
   addBook: (book: Book) => void;
   deleteBook: (bookId: string) => void;
@@ -23,6 +24,12 @@ interface LibraryContextType {
   returnBook: (patronId: string, transactionId: string, fine: number) => void;
   renewLoan: (patronId: string, transactionId: string, extraDays: number) => void;
   addSubject: (subject: Subject) => void;
+  
+  // Acquisitions
+  addAcquisition: (req: AcquisitionRequest) => void;
+  updateAcquisition: (req: AcquisitionRequest) => void;
+  deleteAcquisition: (id: string) => void;
+
   translateStatus: (status: string) => string;
   // Session Persistence
   circulationSession: CirculationSession;
@@ -94,6 +101,7 @@ export const LibraryProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [books, setBooks] = useState<Book[]>([]);
   const [patrons, setPatrons] = useState<Patron[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [acquisitionRequests, setAcquisitionRequests] = useState<AcquisitionRequest[]>([]);
 
   // Config States
   const [resourceTypes, setResourceTypes] = useState<string[]>(['Book', 'Journal', 'Digital', 'CD/DVD', 'Equipment']);
@@ -145,6 +153,8 @@ export const LibraryProvider: React.FC<{ children: ReactNode }> = ({ children })
         if (data.books) setBooks(data.books);
         if (data.patrons) setPatrons(data.patrons);
         if (data.subjects) setSubjects(data.subjects);
+        if (data.acquisitionRequests) setAcquisitionRequests(data.acquisitionRequests);
+        
         // Load configs if they exist in DB, otherwise stick to defaults
         if (data.resourceTypes) setResourceTypes(data.resourceTypes);
         if (data.locations) setLocations(data.locations);
@@ -310,6 +320,22 @@ export const LibraryProvider: React.FC<{ children: ReactNode }> = ({ children })
       setSubjects(prev => [...prev, subject]);
       api.sendAction('addSubject', { subject });
   };
+  
+  // Acquisition Methods
+  const addAcquisition = (req: AcquisitionRequest) => {
+      setAcquisitionRequests(prev => [...prev, req]);
+      api.sendAction('addAcquisition', { request: req });
+  };
+
+  const updateAcquisition = (req: AcquisitionRequest) => {
+      setAcquisitionRequests(prev => prev.map(r => r.id === req.id ? req : r));
+      api.sendAction('updateAcquisition', { request: req });
+  };
+
+  const deleteAcquisition = (id: string) => {
+      setAcquisitionRequests(prev => prev.filter(r => r.id !== id));
+      api.sendAction('deleteAcquisition', { id });
+  };
 
   const translateStatus = (status: string) => {
       switch(status) {
@@ -367,7 +393,8 @@ export const LibraryProvider: React.FC<{ children: ReactNode }> = ({ children })
   const toggleFavoriteWorksheet = (id: string) => setWorksheets(prev => prev.map(w => w.id === id ? { ...w, isFavorite: !w.isFavorite } : w));
 
   const value = {
-      books, patrons, subjects, isLoading, addBook, deleteBook, updateBookStatus, updateBookDetails, addItemsToBook, mergeBooks, addPatron, updatePatron, updatePatronsBatch, deletePatron, addTransaction, deleteTransaction, returnBook, renewLoan, addSubject, translateStatus,
+      books, patrons, subjects, acquisitionRequests, isLoading, addBook, deleteBook, updateBookStatus, updateBookDetails, addItemsToBook, mergeBooks, addPatron, updatePatron, updatePatronsBatch, deletePatron, addTransaction, deleteTransaction, returnBook, renewLoan, addSubject, translateStatus,
+      addAcquisition, updateAcquisition, deleteAcquisition,
       circulationSession, updateCirculationSession,
       catalogingSession, updateCatalogingSession,
       resourceTypes, locations, patronTypes, patronGroups, marcTags, publicPages, authorityRecords, worksheets,
