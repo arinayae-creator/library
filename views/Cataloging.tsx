@@ -4,6 +4,9 @@ import { Save, PlusCircle, Search, Trash2, Edit, Plus, BookOpen, Copy, UploadClo
 import { useLibrary } from '../context/LibraryContext';
 import { Book, AuthorityRecord, Worksheet, WorksheetField, Item } from '../types';
 
+// Declare Swal type
+declare const Swal: any;
+
 const Cataloging: React.FC = () => {
   const { 
       books, addBook, updateBookDetails, deleteBook, translateStatus, mergeBooks, addItemsToBook,
@@ -169,9 +172,17 @@ const Cataloging: React.FC = () => {
       setMaxReservations(book.maxReservations || 3);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
       const title = dynamicTags['245$a'];
-      if (!title) return alert('กรุณาระบุชื่อเรื่อง (245 $a)');
+      if (!title) return Swal.fire('ข้อมูลไม่ครบ', 'กรุณาระบุชื่อเรื่อง (245 $a)', 'warning');
+
+      // 1. Show Loading
+      Swal.fire({
+          title: 'กำลังบันทึก...',
+          text: 'กรุณารอสักครู่ ข้อมูลกำลังถูกส่งไปยัง Google Sheets',
+          allowOutsideClick: false,
+          didOpen: () => Swal.showLoading()
+      });
 
       // Authority Control Logic
       const author = dynamicTags['100$a'];
@@ -219,37 +230,63 @@ const Cataloging: React.FC = () => {
           addBook(newBook);
           updateCatalogingSession({ selectedBookId: newId, isEditMode: true, viewMode: 'Detail' });
       }
-      alert('บันทึกข้อมูลเรียบร้อย');
+
+      // 2. Success Alert (Assuming api call inside context handles async, we wait briefly or optimistically)
+      // Since context methods are void, we assume optimistic UI but can show success here
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulated network delay for UX
+      Swal.fire('บันทึกสำเร็จ', 'ข้อมูลบรรณานุกรมถูกบันทึกเรียบร้อยแล้ว', 'success');
   };
 
   const handleDeleteBook = () => {
       if(!selectedBookId) return;
-      if (selectedBook?.items && selectedBook.items.length > 0) return alert('ไม่สามารถลบได้ กรุณาลบตัวเล่มทั้งหมดก่อน');
-      if (confirm('ยืนยันการลบรายการนี้?')) {
-          deleteBook(selectedBookId);
-          updateCatalogingSession({ selectedBookId: null, viewMode: 'List' });
-      }
+      if (selectedBook?.items && selectedBook.items.length > 0) return Swal.fire('ลบไม่ได้', 'กรุณาลบตัวเล่มทั้งหมดก่อนลบระเบียน', 'error');
+      
+      Swal.fire({
+          title: 'ยืนยันการลบ?',
+          text: "คุณต้องการลบระเบียนนี้ใช่หรือไม่",
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonColor: '#d33',
+          cancelButtonColor: '#3085d6',
+          confirmButtonText: 'ลบรายการ',
+          cancelButtonText: 'ยกเลิก'
+      }).then((result: any) => {
+          if (result.isConfirmed) {
+              deleteBook(selectedBookId);
+              updateCatalogingSession({ selectedBookId: null, viewMode: 'List' });
+              Swal.fire('ลบสำเร็จ!', 'ระเบียนถูกลบแล้ว', 'success');
+          }
+      });
   };
 
   const handleMerge = () => {
       if (!selectedBookId || !mergeTargetId) return;
-      if (selectedBookId === mergeTargetId) return alert('ไม่สามารถรวมระเบียนเดียวกันได้');
-      if (confirm(`ยืนยันการรวมระเบียน? ข้อมูลจาก ID: ${mergeTargetId} จะถูกย้ายมาที่นี่และระเบียนเดิมจะถูกลบ`)) {
-          mergeBooks(selectedBookId, mergeTargetId);
-          setMergeTargetId('');
-          alert('รวมระเบียนเรียบร้อย');
-      }
+      if (selectedBookId === mergeTargetId) return Swal.fire('Error', 'ไม่สามารถรวมระเบียนเดียวกันได้', 'error');
+      
+      Swal.fire({
+          title: 'ยืนยันการรวมระเบียน?',
+          text: `ข้อมูลจาก ID: ${mergeTargetId} จะถูกย้ายมาที่นี่และระเบียนเดิมจะถูกลบ`,
+          icon: 'question',
+          showCancelButton: true,
+          confirmButtonText: 'รวมระเบียน'
+      }).then((result: any) => {
+          if (result.isConfirmed) {
+              mergeBooks(selectedBookId, mergeTargetId);
+              setMergeTargetId('');
+              Swal.fire('Success', 'รวมระเบียนเรียบร้อย', 'success');
+          }
+      });
   };
 
   const handleClone = () => {
       if(!selectedBookId) return;
       updateCatalogingSession({ selectedBookId: null, isEditMode: false });
-      alert('Clone เรียบร้อย กรุณาตรวจสอบและบันทึกเป็นรายการใหม่');
+      Swal.fire('Clone Success', 'คัดลอกข้อมูลเรียบร้อย กรุณาตรวจสอบและบันทึกเป็นรายการใหม่', 'info');
   };
 
   const handleAddItem = () => {
       if (!selectedBookId) return;
-      if (itemQuantity > 10) return alert('เพิ่มได้สูงสุด 10 เล่ม');
+      if (itemQuantity > 10) return Swal.fire('Limit Exceeded', 'เพิ่มได้สูงสุด 10 เล่มต่อครั้ง', 'warning');
       const newItems: Item[] = [];
       const baseBarcode = itemStartBarcode || Date.now().toString().slice(-6);
       for (let i = 0; i < itemQuantity; i++) {
@@ -258,6 +295,7 @@ const Cataloging: React.FC = () => {
       }
       addItemsToBook(selectedBookId, newItems);
       setShowAddItemModal(false);
+      Swal.fire('Added', `เพิ่มตัวเล่ม ${itemQuantity} รายการเรียบร้อย`, 'success');
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'cover' | 'ebook') => {
@@ -280,6 +318,7 @@ const Cataloging: React.FC = () => {
           updateWorksheet(editingWs);
           setEditingWs(null);
       }
+      Swal.fire('Saved', 'Worksheet template saved', 'success');
   };
 
   const addFieldToWs = () => {

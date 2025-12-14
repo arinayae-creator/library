@@ -1,6 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { UserCheck, Clock, Users, LogIn } from 'lucide-react';
+import { api } from '../services/api';
+
+// Declare Swal type globally for TypeScript since it's loaded via CDN
+declare const Swal: any;
 
 const GateEntry: React.FC = () => {
   const [count, setCount] = useState(0);
@@ -12,9 +16,50 @@ const GateEntry: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  const handleCheckIn = () => {
-      setCount(prev => prev + 1);
-      setLastCheckIn(new Date().toLocaleTimeString('th-TH'));
+  const handleCheckIn = async () => {
+      // 1. Show Loading
+      Swal.fire({
+          title: 'กำลังบันทึกข้อมูล...',
+          text: 'กรุณารอสักครู่',
+          allowOutsideClick: false,
+          didOpen: () => {
+              Swal.showLoading();
+          }
+      });
+
+      // 2. Call API
+      try {
+          // Send 'gateEntry' action to Google Sheets
+          const success = await api.sendAction('gateEntry', { 
+              note: 'Kiosk Check-in',
+              timestamp: new Date().toISOString()
+          });
+
+          if (success) {
+              // 3. Success Update UI & Alert
+              setCount(prev => prev + 1);
+              setLastCheckIn(new Date().toLocaleTimeString('th-TH'));
+              
+              Swal.fire({
+                  icon: 'success',
+                  title: 'เช็คอินสำเร็จ!',
+                  text: 'ยินดีต้อนรับสู่ห้องสมุดอิกเราะอฺ',
+                  timer: 2000,
+                  showConfirmButton: false
+              });
+          } else {
+              throw new Error("Save failed");
+          }
+      } catch (error) {
+          // 4. Error Alert
+          console.error("Check-in error:", error);
+          Swal.fire({
+              icon: 'error',
+              title: 'เกิดข้อผิดพลาด',
+              text: 'ไม่สามารถบันทึกข้อมูลไปยัง Google Sheets ได้ (อาจเกิดจากสิทธิ์การเข้าถึงหรืออินเทอร์เน็ต)',
+              confirmButtonText: 'ตกลง'
+          });
+      }
   };
 
   return (

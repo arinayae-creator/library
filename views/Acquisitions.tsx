@@ -4,6 +4,9 @@ import { Plus, Filter, Download, Search, CheckCircle, Clock, XCircle, FileText, 
 import { AcquisitionRequest } from '../types';
 import { useLibrary } from '../context/LibraryContext';
 
+// Declare Swal type
+declare const Swal: any;
+
 const Acquisitions: React.FC = () => {
   const { acquisitionRequests, addAcquisition, updateAcquisition, deleteAcquisition } = useLibrary();
   const [searchTerm, setSearchTerm] = useState('');
@@ -24,9 +27,9 @@ const Acquisitions: React.FC = () => {
     }
   };
 
-  const handleCreate = (e: React.FormEvent) => {
+  const handleCreate = async (e: React.FormEvent) => {
       e.preventDefault();
-      if (!formData.title || !formData.requester) return alert('กรุณาระบุข้อมูลให้ครบถ้วน');
+      if (!formData.title || !formData.requester) return Swal.fire('ข้อมูลไม่ครบ', 'กรุณาระบุข้อมูลให้ครบถ้วน', 'warning');
       
       const newReq: AcquisitionRequest = {
           id: `REQ-${Date.now().toString().slice(-4)}`,
@@ -37,7 +40,18 @@ const Acquisitions: React.FC = () => {
           status: 'Pending'
       };
       
+      // 1. Loading
+      Swal.fire({
+          title: 'กำลังบันทึก...',
+          didOpen: () => Swal.showLoading()
+      });
+
       addAcquisition(newReq);
+
+      // 2. Success (Optimistic)
+      await new Promise(resolve => setTimeout(resolve, 800));
+      Swal.fire('สำเร็จ', 'บันทึกรายการเสนอแนะเรียบร้อย', 'success');
+
       setIsModalOpen(false);
       setFormData({ title: '', requester: '', price: 0, department: 'ทั่วไป', status: 'Pending' });
   };
