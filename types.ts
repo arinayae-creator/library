@@ -161,7 +161,7 @@ export interface CirculationSession {
   scannedItems: Transaction[];
   itemIdInput: string;
   patronIdInput: string;
-  rightPanelTab: 'Active' | 'History' | 'Fines';
+  rightPanelTab: 'Active' | 'History' | 'Fines' | 'Holds';
   isPatronFormOpen: boolean;
   patronFormData: Partial<Patron>;
   isPatronEditMode: boolean;

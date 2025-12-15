@@ -1,8 +1,11 @@
 
-import React, { useState } from 'react';
-import { Settings, Shield, Calendar, Database, Users, Save, RefreshCw, Book, Layout, Tags, ExternalLink, Plus, Edit2, Trash2, Globe, Bold, Italic, List, Type } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Settings, Shield, Calendar, Database, Users, Save, RefreshCw, Book, Layout, Tags, ExternalLink, Plus, Edit2, Trash2, Globe, Bold, Italic, List, Type, Upload, Check, X, FileSpreadsheet } from 'lucide-react';
 import { useLibrary } from '../context/LibraryContext';
 import { MarcTagDefinition, PublicPage } from '../types';
+
+// Declare Swal type
+declare const Swal: any;
 
 const Admin: React.FC = () => {
   const [activeTab, setActiveTab] = useState('General');
@@ -16,7 +19,7 @@ const Admin: React.FC = () => {
   } = useLibrary();
 
   // State for forms
-  const [editingItem, setEditingItem] = useState<{ type: string, oldVal: any, newVal: any } | null>(null);
+  const [editingItem, setEditingItem] = useState<{ type: string, oldVal: any, newVal: any, extraVal?: any, extraVal2?: any } | null>(null);
   const [newItemInput, setNewItemInput] = useState('');
   const [newItemInput2, setNewItemInput2] = useState(''); // For secondary fields like MARC desc
   const [newItemInput3, setNewItemInput3] = useState(''); // For tertiary fields like MARC sub
@@ -25,6 +28,13 @@ const Admin: React.FC = () => {
   const [pageEditorId, setPageEditorId] = useState<string | null>(null);
   const [pageTitle, setPageTitle] = useState('');
   const [pageContent, setPageContent] = useState('');
+
+  // Import Modal State
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importData, setImportData] = useState<string[][]>([]);
+  const [importHeaders, setImportHeaders] = useState<string[]>([]);
+  const [columnMapping, setColumnMapping] = useState({ tag: '', sub: '', desc: '' });
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Helper for simple list management
   const renderSimpleList = (
@@ -133,8 +143,162 @@ const Admin: React.FC = () => {
       setPageContent(prev => prev + tag);
   };
 
+  // --- CSV Import Logic ---
+  const parseCSV = (text: string) => {
+      const lines = text.split('\n').filter(l => l.trim());
+      // Naive CSV split (splitting by comma). 
+      // For production, use a library or regex to handle quotes.
+      const data = lines.map(line => line.split(',').map(v => v.trim().replace(/^"|"$/g, '')));
+      return data;
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+          const text = event.target?.result as string;
+          const data = parseCSV(text);
+          if (data.length > 0) {
+              setImportHeaders(data[0]);
+              setImportData(data.slice(1));
+              
+              // Auto-guess mapping
+              const lowerHeaders = data[0].map(h => h.toLowerCase());
+              setColumnMapping({
+                  tag: data[0][lowerHeaders.indexOf('tag')] || data[0][0] || '',
+                  sub: data[0][lowerHeaders.indexOf('subfield')] || data[0][lowerHeaders.indexOf('sub')] || '',
+                  desc: data[0][lowerHeaders.indexOf('description')] || data[0][lowerHeaders.indexOf('desc')] || data[0][lowerHeaders.indexOf('name')] || ''
+              });
+          }
+      };
+      reader.readAsText(file);
+  };
+
+  const handleImportConfirm = () => {
+      if (!columnMapping.tag) { Swal.fire('Error', 'กรุณาเลือกคอลัมน์ Tag', 'error'); return; }
+      
+      const tagIdx = importHeaders.indexOf(columnMapping.tag);
+      const subIdx = importHeaders.indexOf(columnMapping.sub);
+      const descIdx = importHeaders.indexOf(columnMapping.desc);
+
+      let count = 0;
+      importData.forEach(row => {
+          const tag = row[tagIdx];
+          // Basic validation: Tag must exist
+          if (tag) {
+              addMarcTag({
+                  tag: tag,
+                  sub: subIdx !== -1 ? row[subIdx] : '$a',
+                  desc: descIdx !== -1 ? row[descIdx] : ''
+              });
+              count++;
+          }
+      });
+
+      Swal.fire('สำเร็จ', `นำเข้าข้อมูลสำเร็จ ${count} รายการ`, 'success');
+      setShowImportModal(false);
+      setImportData([]);
+      setImportHeaders([]);
+  };
+
+  // Helper for MARC Edit
+  const handleSaveMarcEdit = () => {
+      if (editingItem && editingItem.type === 'MARC') {
+          updateMarcTag(editingItem.oldVal, {
+              tag: editingItem.newVal,
+              sub: editingItem.extraVal,
+              desc: editingItem.extraVal2
+          });
+          setEditingItem(null);
+      }
+  };
+
   return (
     <div className="p-8 space-y-6">
+      
+      {/* Import Modal */}
+      {showImportModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm p-4 animate-fadeIn">
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
+                  <div className="bg-slate-100 p-4 border-b flex justify-between items-center">
+                      <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2"><FileSpreadsheet className="w-5 h-5 text-green-600"/> นำเข้า MARC Tags (CSV/Excel)</h3>
+                      <button onClick={() => setShowImportModal(false)}><X className="w-5 h-5 text-slate-500 hover:text-red-500"/></button>
+                  </div>
+                  <div className="p-6 overflow-y-auto flex-1">
+                      {importData.length === 0 ? (
+                          <div className="flex flex-col items-center justify-center h-48 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50">
+                              <Upload className="w-12 h-12 text-slate-400 mb-2"/>
+                              <p className="text-slate-500 mb-4">อัปโหลดไฟล์ CSV ที่ได้จาก Excel</p>
+                              <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
+                              <button onClick={() => fileInputRef.current?.click()} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">เลือกไฟล์</button>
+                          </div>
+                      ) : (
+                          <div className="space-y-6">
+                              <div className="grid grid-cols-3 gap-4">
+                                  <div>
+                                      <label className="block text-xs font-bold text-slate-500 mb-1">คอลัมน์ Tag *</label>
+                                      <select className="w-full border rounded p-2 text-sm" value={columnMapping.tag} onChange={e => setColumnMapping({...columnMapping, tag: e.target.value})}>
+                                          <option value="">-- เลือก --</option>
+                                          {importHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                                      </select>
+                                  </div>
+                                  <div>
+                                      <label className="block text-xs font-bold text-slate-500 mb-1">คอลัมน์ Subfield</label>
+                                      <select className="w-full border rounded p-2 text-sm" value={columnMapping.sub} onChange={e => setColumnMapping({...columnMapping, sub: e.target.value})}>
+                                          <option value="">-- เลือก (ค่าเริ่มต้น $a) --</option>
+                                          {importHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                                      </select>
+                                  </div>
+                                  <div>
+                                      <label className="block text-xs font-bold text-slate-500 mb-1">คอลัมน์ Description</label>
+                                      <select className="w-full border rounded p-2 text-sm" value={columnMapping.desc} onChange={e => setColumnMapping({...columnMapping, desc: e.target.value})}>
+                                          <option value="">-- เลือก --</option>
+                                          {importHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                                      </select>
+                                  </div>
+                              </div>
+
+                              <div>
+                                  <h4 className="font-bold text-sm text-slate-700 mb-2">ตัวอย่างข้อมูล (5 แถวแรก)</h4>
+                                  <div className="border rounded overflow-hidden">
+                                      <table className="w-full text-xs text-left">
+                                          <thead className="bg-slate-100 font-bold">
+                                              <tr>
+                                                  <th className="p-2 border-r w-20">Tag</th>
+                                                  <th className="p-2 border-r w-20">Sub</th>
+                                                  <th className="p-2">Description</th>
+                                              </tr>
+                                          </thead>
+                                          <tbody className="divide-y">
+                                              {importData.slice(0, 5).map((row, i) => {
+                                                  const tagIdx = importHeaders.indexOf(columnMapping.tag);
+                                                  const subIdx = importHeaders.indexOf(columnMapping.sub);
+                                                  const descIdx = importHeaders.indexOf(columnMapping.desc);
+                                                  return (
+                                                      <tr key={i}>
+                                                          <td className="p-2 border-r font-mono text-blue-600">{tagIdx !== -1 ? row[tagIdx] : '-'}</td>
+                                                          <td className="p-2 border-r font-mono">{subIdx !== -1 ? row[subIdx] : '$a'}</td>
+                                                          <td className="p-2">{descIdx !== -1 ? row[descIdx] : '-'}</td>
+                                                      </tr>
+                                                  )
+                                              })}
+                                          </tbody>
+                                      </table>
+                                  </div>
+                              </div>
+                          </div>
+                      )}
+                  </div>
+                  <div className="bg-slate-50 p-4 border-t flex justify-end gap-2">
+                      <button onClick={() => setShowImportModal(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded">ยกเลิก</button>
+                      <button onClick={handleImportConfirm} disabled={importData.length === 0} className="px-6 py-2 bg-green-600 text-white rounded font-bold hover:bg-green-700 disabled:bg-slate-300">ยืนยันการนำเข้า</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-slate-800">ผู้ดูแลระบบ (System Administration)</h1>
       </div>
@@ -196,23 +360,41 @@ const Admin: React.FC = () => {
 
              {activeTab === 'MARC' && (
                 <div className="animate-fadeIn">
-                    <h2 className="text-xl font-bold mb-6 text-slate-800 border-b pb-2">จัดการแท็กบรรณานุกรม (MARC Tags)</h2>
+                    <div className="flex justify-between items-center mb-6 border-b pb-2">
+                        <h2 className="text-xl font-bold text-slate-800">จัดการแท็กบรรณานุกรม (MARC Tags)</h2>
+                        <button onClick={() => setShowImportModal(true)} className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded text-sm hover:bg-slate-50 flex items-center gap-2">
+                            <Upload className="w-4 h-4"/> นำเข้าข้อมูล (Import)
+                        </button>
+                    </div>
                     <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 mb-6">
                         <div className="flex gap-2 mb-4 items-end">
-                            <div className="w-24"><label className="text-xs text-slate-500">Tag</label><input type="text" placeholder="000" className="w-full border rounded px-2 py-2" value={newItemInput} onChange={e => setNewItemInput(e.target.value)} /></div>
-                            <div className="w-24"><label className="text-xs text-slate-500">Subfield</label><input type="text" placeholder="$a" className="w-full border rounded px-2 py-2" value={newItemInput3} onChange={e => setNewItemInput3(e.target.value)} /></div>
-                            <div className="flex-1"><label className="text-xs text-slate-500">Description</label><input type="text" placeholder="คำอธิบาย..." className="w-full border rounded px-2 py-2" value={newItemInput2} onChange={e => setNewItemInput2(e.target.value)} /></div>
-                            <button onClick={() => { if(newItemInput && newItemInput2) { addMarcTag({tag: newItemInput, sub: newItemInput3 || '$a', desc: newItemInput2}); setNewItemInput(''); setNewItemInput2(''); setNewItemInput3(''); } }} className="bg-accent text-white px-4 py-2 rounded hover:bg-blue-600 mb-px h-[42px]">เพิ่ม</button>
+                            {editingItem?.type === 'MARC' ? (
+                                <>
+                                    <div className="w-24"><label className="text-xs text-slate-500">Tag</label><input type="text" className="w-full border rounded px-2 py-2 border-accent ring-1 ring-accent" value={editingItem.newVal} onChange={e => setEditingItem({...editingItem, newVal: e.target.value})} /></div>
+                                    <div className="w-24"><label className="text-xs text-slate-500">Subfield</label><input type="text" className="w-full border rounded px-2 py-2 border-accent ring-1 ring-accent" value={editingItem.extraVal} onChange={e => setEditingItem({...editingItem, extraVal: e.target.value})} /></div>
+                                    <div className="flex-1"><label className="text-xs text-slate-500">Description</label><input type="text" className="w-full border rounded px-2 py-2 border-accent ring-1 ring-accent" value={editingItem.extraVal2} onChange={e => setEditingItem({...editingItem, extraVal2: e.target.value})} /></div>
+                                    <button onClick={handleSaveMarcEdit} className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 mb-px h-[42px] flex items-center gap-1"><Check className="w-4 h-4"/> บันทึก</button>
+                                    <button onClick={() => setEditingItem(null)} className="bg-slate-200 text-slate-600 px-4 py-2 rounded hover:bg-slate-300 mb-px h-[42px]">ยกเลิก</button>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="w-24"><label className="text-xs text-slate-500">Tag</label><input type="text" placeholder="000" className="w-full border rounded px-2 py-2" value={newItemInput} onChange={e => setNewItemInput(e.target.value)} /></div>
+                                    <div className="w-24"><label className="text-xs text-slate-500">Subfield</label><input type="text" placeholder="$a" className="w-full border rounded px-2 py-2" value={newItemInput3} onChange={e => setNewItemInput3(e.target.value)} /></div>
+                                    <div className="flex-1"><label className="text-xs text-slate-500">Description</label><input type="text" placeholder="คำอธิบาย..." className="w-full border rounded px-2 py-2" value={newItemInput2} onChange={e => setNewItemInput2(e.target.value)} /></div>
+                                    <button onClick={() => { if(newItemInput && newItemInput2) { addMarcTag({tag: newItemInput, sub: newItemInput3 || '$a', desc: newItemInput2}); setNewItemInput(''); setNewItemInput2(''); setNewItemInput3(''); } }} className="bg-accent text-white px-4 py-2 rounded hover:bg-blue-600 mb-px h-[42px]">เพิ่ม</button>
+                                </>
+                            )}
                         </div>
                         <div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-slate-200 text-slate-700"><tr><th className="p-2">Tag</th><th className="p-2">Sub</th><th className="p-2">Description</th><th className="p-2 text-right">Action</th></tr></thead>
                             <tbody className="divide-y divide-slate-200">
                                 {marcTags.map((tag) => (
-                                    <tr key={tag.tag} className="bg-white hover:bg-slate-50">
+                                    <tr key={tag.tag} className={`group ${editingItem?.type === 'MARC' && editingItem.oldVal === tag.tag ? 'bg-blue-50' : 'bg-white hover:bg-slate-50'}`}>
                                         <td className="p-2 font-mono font-bold text-slate-700">{tag.tag}</td>
                                         <td className="p-2 font-mono text-slate-500">{tag.sub}</td>
                                         <td className="p-2">{tag.desc}</td>
-                                        <td className="p-2 text-right">
-                                            <button onClick={() => { if(window.confirm(`ลบ Tag ${tag.tag}?`)) deleteMarcTag(tag.tag); }} className="text-red-500 hover:underline"><Trash2 className="w-4 h-4"/></button>
+                                        <td className="p-2 text-right flex justify-end gap-2">
+                                            <button onClick={() => setEditingItem({ type: 'MARC', oldVal: tag.tag, newVal: tag.tag, extraVal: tag.sub, extraVal2: tag.desc })} className="text-slate-400 hover:text-accent opacity-0 group-hover:opacity-100 transition-opacity"><Edit2 className="w-4 h-4"/></button>
+                                            <button onClick={() => { if(window.confirm(`ลบ Tag ${tag.tag}?`)) deleteMarcTag(tag.tag); }} className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-4 h-4"/></button>
                                         </td>
                                     </tr>
                                 ))}

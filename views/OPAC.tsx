@@ -24,19 +24,21 @@ const OPAC: React.FC = () => {
 
   const handleSearch = () => {
     let filtered = books;
+    const lowerQuery = searchQuery.toLowerCase();
+    
     if (advancedMode) {
         filtered = books.filter(b => 
-            (advTitle ? b.title.toLowerCase().includes(advTitle.toLowerCase()) : true) &&
-            (advAuthor ? b.author.toLowerCase().includes(advAuthor.toLowerCase()) : true) &&
-            (advSubject ? b.subject?.toLowerCase().includes(advSubject.toLowerCase()) : true) &&
-            (advISBN ? b.isbn.includes(advISBN) : true)
+            (advTitle ? (b.title && b.title.toLowerCase().includes(advTitle.toLowerCase())) : true) &&
+            (advAuthor ? (b.author && b.author.toLowerCase().includes(advAuthor.toLowerCase())) : true) &&
+            (advSubject ? (b.subject?.toLowerCase().includes(advSubject.toLowerCase())) : true) &&
+            (advISBN ? (b.isbn && String(b.isbn).includes(advISBN)) : true)
         );
     } else {
         filtered = books.filter(b => 
-            b.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-            b.author.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            b.isbn.includes(searchQuery) ||
-            b.id.includes(searchQuery)
+            (b.title && b.title.toLowerCase().includes(lowerQuery)) || 
+            (b.author && b.author.toLowerCase().includes(lowerQuery)) ||
+            (b.isbn && String(b.isbn).includes(lowerQuery)) ||
+            (b.id && String(b.id).includes(lowerQuery))
         );
     }
     setResults(filtered);

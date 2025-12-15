@@ -61,10 +61,14 @@ const Dashboard: React.FC = () => {
   // Calculate dynamic stats from context
   const totalBooks = books.length;
   const totalPatrons = patrons.length;
-  const overdueCount = patrons.reduce((acc, p) => 
-      acc + p.history.filter(h => h.status === 'Active' && new Date() > new Date(h.dueDate.split('/').reverse().join('-'))).length
-  , 0);
-  const totalFines = patrons.reduce((acc, p) => acc + p.finesOwed, 0);
+  
+  const overdueCount = patrons.reduce((acc, p) => {
+      const history = Array.isArray(p.history) ? p.history : [];
+      const count = history.filter(h => h.status === 'Active' && h.dueDate && new Date() > new Date(h.dueDate.split('/').reverse().join('-'))).length;
+      return acc + count;
+  }, 0);
+  
+  const totalFines = patrons.reduce((acc, p) => acc + (p.finesOwed || 0), 0);
 
   if (isLoading) {
       return (

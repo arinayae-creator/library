@@ -1,6 +1,7 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { HashRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
+import { Menu } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import Dashboard from './views/Dashboard';
 import Acquisitions from './views/Acquisitions';
@@ -36,6 +37,7 @@ const Footer = () => (
 const MainLayout: React.FC = () => {
     const location = useLocation();
     const isFullScreen = location.pathname === '/gate-entry';
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
     if (isFullScreen) {
         return (
@@ -47,8 +49,23 @@ const MainLayout: React.FC = () => {
 
     return (
         <div className="flex min-h-screen bg-slate-50 text-slate-900 font-sans">
-            <Sidebar />
+            {/* Mobile Sidebar (Responsive) */}
+            <Sidebar isOpen={isMobileMenuOpen} onClose={() => setIsMobileMenuOpen(false)} />
+            
             <div className="flex-1 md:ml-72 transition-all duration-300 flex flex-col min-h-screen">
+                {/* Mobile Header */}
+                <header className="bg-white border-b border-slate-200 p-4 md:hidden flex items-center justify-between sticky top-0 z-20 shadow-sm">
+                    <div className="flex items-center gap-3">
+                        <button 
+                            onClick={() => setIsMobileMenuOpen(true)}
+                            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg"
+                        >
+                            <Menu className="w-6 h-6" />
+                        </button>
+                        <span className="font-bold text-slate-700 truncate">ระบบห้องสมุดอัตโนมัติ</span>
+                    </div>
+                </header>
+
                 <main className="flex-1">
                     <Routes>
                         <Route path="/" element={<Dashboard />} />

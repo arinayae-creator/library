@@ -48,6 +48,26 @@
         from { opacity: 0; transform: translateY(10px); }
         to { opacity: 1; transform: translateY(0); }
       }
+
+      /* Print Styles for Professional Reporting */
+      @media print {
+        @page {
+          size: A4;
+          margin: 0;
+        }
+        body.print-mode * {
+          visibility: hidden;
+        }
+        body.print-mode .printable-area, body.print-mode .printable-area * {
+          visibility: visible;
+        }
+        body.print-mode .printable-area {
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 100%;
+        }
+      }
     </style>
   <script type="importmap">
 {
