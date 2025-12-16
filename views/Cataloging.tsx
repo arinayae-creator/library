@@ -1,33 +1,40 @@
 
 import React, { useState, useRef } from 'react';
-import { Save, PlusCircle, Tag, Database, Globe, Copy, Box, Search, ArrowRight, Trash2, Edit, History, Bookmark, Plus, X, Code, ScanLine, Image as ImageIcon, Upload, Check, BookOpen, User, FileText, Link as LinkIcon, File } from 'lucide-react';
+import { Save, PlusCircle, Tag, Database, Globe, Copy, Box, Search, ArrowRight, ArrowLeft, Trash2, Edit, History, Bookmark, Plus, X, Code, ScanLine, Image as ImageIcon, Upload, Check, BookOpen, User, FileText, Link as LinkIcon, File, FileSpreadsheet, Download, RefreshCw, AlertTriangle, LayoutList, LayoutGrid, Filter, Barcode, Calendar, Users, Building2, Library, Hash, Key } from 'lucide-react';
 import { useLibrary } from '../context/LibraryContext';
-import { Book, Item, Subject, Transaction } from '../types';
+import { Book, Item, Subject, Transaction, Patron } from '../types';
 
-// Declare Swal type
+// Declare Swal & XLSX type
 declare const Swal: any;
+declare const XLSX: any;
 
 const Cataloging: React.FC = () => {
-  const { books, patrons, subjects, addBook, updateBookDetails, deleteBook, addSubject, translateStatus, marcTags, resourceTypes, locations } = useLibrary();
+  const { books, patrons, subjects, addBook, updateBookDetails, deleteBook, addSubject, translateStatus, marcTags, resourceTypes, locations, updatePatron } = useLibrary();
   
   // Navigation Tabs
-  const [activeTab, setActiveTab] = useState<'Search' | 'Bib' | 'Item' | 'Union'>('Search');
+  const [activeTab, setActiveTab] = useState<'Search' | 'Bib' | 'Item' | 'Authority' | 'Import'>('Search');
   
   // Search State
+  const [searchMode, setSearchMode] = useState<'Barcode' | 'Basic' | 'Advanced'>('Barcode');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchBarcode, setSearchBarcode] = useState('');
-  const [searchType, setSearchType] = useState<'Basic' | 'Advanced'>('Basic');
+  
   const [searchResults, setSearchResults] = useState<Book[]>([]);
   const [selectedBook, setSelectedBook] = useState<Book | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
+  const [viewMode, setViewMode] = useState<'List' | 'Table'>('Table');
 
   // Advanced Search Fields
   const [advTitle, setAdvTitle] = useState('');
   const [advAuthor, setAdvAuthor] = useState('');
   const [advISBN, setAdvISBN] = useState('');
   const [advSubject, setAdvSubject] = useState('');
+  const [advPubYear, setAdvPubYear] = useState('');
+  const [advLanguage, setAdvLanguage] = useState('');
+  const [advResourceType, setAdvResourceType] = useState('');
+  const [advLocation, setAdvLocation] = useState('');
 
-  // --- Bibliographic Record Form State (Split into 3 parts) ---
+  // --- Bibliographic Record Form State ---
   const [isEditMode, setIsEditMode] = useState(false);
   const [formId, setFormId] = useState('');
   
@@ -40,20 +47,25 @@ const Cataloging: React.FC = () => {
   const [cutter, setCutter] = useState('');
   const [pubYearCall, setPubYearCall] = useState('');
   
-  // Part 3: MARC 21 Fields (Expanded)
+  // Part 3: MARC 21 Fields
   const [tag020, setTag020] = useState(''); // ISBN
-  const [tag041, setTag041] = useState('tha'); // Language
-  // Tag 082 is Dewey (mapped from Part 2)
   const [tag100, setTag100] = useState(''); // Author Person
   const [tag110, setTag110] = useState(''); // Author Corp
   const [tag245a, setTag245a] = useState(''); // Title (Mandatory)
   const [tag245c, setTag245c] = useState(''); // Statement of responsibility
   const [tag246, setTag246] = useState(''); // Varying form of title
   const [tag250, setTag250] = useState(''); // Edition
-  const [tag260, setTag260] = useState(''); // Pub: Place : Publisher : Year
-  const [tag300, setTag300] = useState(''); // Physical Desc
+  
+  // 260 Imprint
+  const [tag260a, setTag260a] = useState(''); // Place
+  const [tag260b, setTag260b] = useState(''); // Publisher
+  const [tag260c, setTag260c] = useState(''); // Year
+  
+  // 300 Physical
+  const [tag300a, setTag300a] = useState(''); // Pages/Extent
+  const [tag300b, setTag300b] = useState(''); // Other/Illus
+  
   const [tag440, setTag440] = useState(''); // Series
-  const [tag500, setTag500] = useState(''); // General Note
   const [tag520, setTag520] = useState(''); // Summary
   const [tag541, setTag541] = useState(''); // Price
   const [tag650, setTag650] = useState(''); // Subject (Authority)
@@ -76,20 +88,84 @@ const Cataloging: React.FC = () => {
       inputType: 'single'
   });
 
-  // Subject Authority State
+  // Import State
+  const [importText, setImportText] = useState('');
+  const [previewBooks, setPreviewBooks] = useState<Book[]>([]);
+  const [importConfig, setImportConfig] = useState({
+      location: locations[0] || 'ชั้น 1 - ทั่วไป',
+      resourceType: resourceTypes[0] || 'Book',
+      showInOpac: true
+  });
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // --- Auto-Complete / Authority Logic State ---
+  // Subject
   const [showSubjectSuggestions, setShowSubjectSuggestions] = useState(false);
-  const [suggestedSubjects, setSuggestedSubjects] = useState<Subject[]>([]);
+  const [suggestedSubjects, setSuggestedSubjects] = useState<{heading: string, dewey: string}[]>([]);
+  
+  // Author
+  const [showAuthorSuggestions, setShowAuthorSuggestions] = useState(false);
+  const [suggestedAuthors, setSuggestedAuthors] = useState<{name: string, cutter: string}[]>([]);
+
+  // Publisher
+  const [showPublisherSuggestions, setShowPublisherSuggestions] = useState(false);
+  const [suggestedPublishers, setSuggestedPublishers] = useState<{name: string, place: string}[]>([]);
+
+  // Series
+  const [showSeriesSuggestions, setShowSeriesSuggestions] = useState(false);
+  const [suggestedSeries, setSuggestedSeries] = useState<string[]>([]);
+
 
   // --- Holdings State ---
   const [holdingsMode, setHoldingsMode] = useState<'Manual' | 'Auto'>('Auto');
   const [manualBarcode, setManualBarcode] = useState('');
   const [autoCopyCount, setAutoCopyCount] = useState(1);
   const [maxReservations, setMaxReservations] = useState(1);
+  
+  // Holdings Edit/Delete State
+  const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
+  const [tempEditBarcode, setTempEditBarcode] = useState('');
+  const [tempEditStatus, setTempEditStatus] = useState('');
+  const [tempEditNote, setTempEditNote] = useState('');
 
-  // Management Views
+  // Management Views (Modals)
   const [showMarcModal, setShowMarcModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showHoldsModal, setShowHoldsModal] = useState(false);
+
+  // --- Authority Control State ---
+  const [authorityType, setAuthorityType] = useState<'Author' | 'Publisher' | 'Series' | 'Subject'>('Author');
+  const [authoritySearch, setAuthoritySearch] = useState('');
+  const [selectedAuthority, setSelectedAuthority] = useState<{ type: string, name: string } | null>(null);
+
+  // --- Helper: Status Display ---
+  const getStatusLabel = (status: string) => {
+      switch (status) {
+          case 'Available': return 'อยู่บนชั้น';
+          case 'Checked Out': return 'ถูกยืมออก';
+          case 'Shelving Cart': return 'อยู่บนรถเข็น (รอขึ้นชั้น)';
+          case 'Lost': return 'สูญหาย';
+          case 'Missing': return 'สูญหายจากชั้นวางหนังสือ';
+          case 'Repair': return 'ชำรุด/รอซ่อม';
+          case 'Processing': return 'รอติด QR code';
+          case 'Reserved': return 'ถูกจอง';
+          default: return status;
+      }
+  };
+
+  const getStatusColor = (status: string) => {
+      switch (status) {
+          case 'Available': return 'bg-green-100 text-green-700 border-green-200';
+          case 'Shelving Cart': return 'bg-teal-100 text-teal-700 border-teal-200';
+          case 'Checked Out': return 'bg-blue-100 text-blue-700 border-blue-200';
+          case 'Reserved': return 'bg-orange-100 text-orange-700 border-orange-200';
+          case 'Lost': return 'bg-red-100 text-red-700 border-red-200';
+          case 'Missing': return 'bg-red-50 text-red-600 border-red-100';
+          case 'Repair': return 'bg-slate-200 text-slate-600 border-slate-300';
+          case 'Processing': return 'bg-purple-100 text-purple-700 border-purple-200';
+          default: return 'bg-gray-100 text-gray-700';
+      }
+  };
 
   // --- Helper: Get Global Max ID/Barcode ---
   const getGlobalMaxBarcode = () => {
@@ -112,17 +188,62 @@ const Cataloging: React.FC = () => {
       return maxVal;
   };
 
+  const resetForm = () => {
+      setSelectedBook(null);
+      setFormId('');
+      setIsEditMode(false);
+      
+      setResourceType(resourceTypes[0] || 'Book');
+      setLocation(locations[0] || 'ชั้น 1 - ทั่วไป');
+      
+      setDewey('');
+      setCutter('');
+      setPubYearCall('');
+      
+      setTag020('');
+      setTag100('');
+      setTag110('');
+      setTag245a('');
+      setTag245c('');
+      setTag246('');
+      setTag250('');
+      setTag260a('');
+      setTag260b('');
+      setTag260c('');
+      setTag300a('');
+      setTag300b('');
+      setTag440('');
+      setTag520('');
+      setTag541('');
+      setTag650('');
+      setTag700('');
+      setTag710('');
+      setTag856('');
+      setTag856File('');
+      setTag902('');
+      setTag990('');
+      
+      setExtraMarc([]);
+      setMaxReservations(1);
+      setHoldingsMode('Auto');
+      setManualBarcode('');
+      setAutoCopyCount(1);
+  };
+
   // --- Search Logic ---
   const handleSearch = () => {
       let results = books;
-      if (searchType === 'Basic') {
+      if (searchMode === 'Barcode') {
           if (searchBarcode) {
              results = books.filter(b => 
                 String(b.id) === searchBarcode || 
-                b.items?.some(i => i.barcode === searchBarcode) ||
-                (b.isbn && String(b.isbn) === searchBarcode)
+                b.items?.some(i => i.barcode === searchBarcode)
              );
-          } else if (searchQuery) {
+          } else {
+              results = [];
+          }
+      } else if (searchMode === 'Basic') {
+          if (searchQuery) {
             const lowerQ = searchQuery.toLowerCase();
             results = books.filter(b => 
                 (b.title && b.title.toLowerCase().includes(lowerQ)) ||
@@ -135,17 +256,26 @@ const Cataloging: React.FC = () => {
           }
       } else {
           // Advanced
-          results = books.filter(b => 
-            (advTitle ? (b.title && b.title.toLowerCase().includes(advTitle.toLowerCase())) : true) &&
-            (advAuthor ? (b.author && b.author.toLowerCase().includes(advAuthor.toLowerCase())) : true) &&
-            (advISBN ? (b.isbn && String(b.isbn).includes(advISBN)) : true) &&
-            (advSubject ? (b.subject && b.subject.toLowerCase().includes(advSubject.toLowerCase())) : true)
-          );
+          results = books.filter(b => {
+            const matchTitle = advTitle ? (b.title && b.title.toLowerCase().includes(advTitle.toLowerCase())) : true;
+            const matchAuthor = advAuthor ? (b.author && b.author.toLowerCase().includes(advAuthor.toLowerCase())) : true;
+            const matchISBN = advISBN ? (b.isbn && String(b.isbn).includes(advISBN)) : true;
+            const matchSubject = advSubject ? (b.subject && b.subject.toLowerCase().includes(advSubject.toLowerCase())) : true;
+            
+            const matchYear = advPubYear ? (b.pubYear && b.pubYear.includes(advPubYear)) : true;
+            const matchType = advResourceType ? (b.format === advResourceType) : true;
+            const matchLocation = advLocation ? (b.items?.some(i => i.location === advLocation)) : true;
+            // Language logic is tricky as it's not in standard props, usually in MARC 008/041. 
+            // For prototype, we skip strict language check or assume Thai if not specified.
+            const matchLang = true; 
+
+            return matchTitle && matchAuthor && matchISBN && matchSubject && matchYear && matchType && matchLocation && matchLang;
+          });
       }
       setSearchResults(results);
       setHasSearched(true);
       setSelectedBook(null);
-      if(searchBarcode) setSearchBarcode('');
+      if (searchMode === 'Barcode') setSearchBarcode('');
   };
 
   // --- Fill Form for Edit/Copy ---
@@ -166,18 +296,42 @@ const Cataloging: React.FC = () => {
       // Part 3
       setTag020(book.isbn);
       setTag100(book.author);
+      // Try to find Corp Author if 100 is empty, or from marcData
+      setTag110(book.marcData?.['110'] || '');
+      
       setTag245a(isCopy ? book.title + ' (Copy)' : book.title);
-      setTag260(` : ${book.publisher || ''} : ${book.pubYear || ''}`);
-      setTag300(`${book.pages || ''} : : `);
+      // Try to extract subfield c from marcData if available
+      setTag245c(book.marcData?.['245']?.split('$c')?.[1]?.trim() || '');
+      
+      setTag246(book.marcData?.['246'] || '');
+      setTag250(book.marcData?.['250'] || '');
+      
+      // 260
+      setTag260a(book.marcData?.['260']?.split('$a')?.[1]?.split('$')?.[0]?.trim() || '');
+      setTag260b(book.publisher || '');
+      setTag260c(book.pubYear || '');
+      
+      // 300
+      setTag300a(book.pages || '');
+      setTag300b(book.marcData?.['300']?.split('$b')?.[1]?.split('$')?.[0]?.trim() || '');
+      
+      setTag440(book.marcData?.['440'] || '');
       setTag520(book.description || '');
+      setTag541(book.marcData?.['541'] || '');
       setTag650(book.subject || '');
+      
+      setTag700(book.marcData?.['700'] || '');
+      setTag710(book.marcData?.['710'] || '');
+      
       setTag856(book.ebookUrl || '');
       setTag902(book.coverUrl || '');
+      setTag990(book.marcData?.['990'] || '');
+      
       setMaxReservations(book.maxReservations || 1);
 
       // Restore Extra MARC Fields from marcData
       if (book.marcData && !isCopy) {
-          const standardTags = ['020', '041', '082', '100', '110', '245', '246', '250', '260', '300', '440', '500', '520', '541', '650', '700', '710', '856', '902', '990'];
+          const standardTags = ['020', '082', '100', '110', '245', '246', '250', '260', '300', '440', '520', '541', '650', '700', '710', '856', '902', '990'];
           const loadedExtra: typeof extraMarc = [];
           
           Object.entries(book.marcData).forEach(([tag, val]) => {
@@ -211,11 +365,48 @@ const Cataloging: React.FC = () => {
       setActiveTab('Bib');
   };
 
-  // --- Bib Form Logic ---
+  const handleDeleteBook = async (id: string) => {
+      const result = await Swal.fire({
+          title: 'ยืนยันการลบรายการ?',
+          text: "ข้อมูลบรรณานุกรมและตัวเล่มทั้งหมดจะถูกลบถาวร",
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonColor: '#ef4444',
+          cancelButtonColor: '#cbd5e1',
+          confirmButtonText: 'ยืนยันลบ',
+          cancelButtonText: 'ยกเลิก'
+      });
+
+      if (result.isConfirmed) {
+          await deleteBook(id);
+          setSelectedBook(null);
+          Swal.fire('ลบสำเร็จ', 'ลบรายการเรียบร้อยแล้ว', 'success');
+      }
+  };
+
+  // --- Bib Form Logic (Suggestions & Auto-fill) ---
+  
+  // 1. SUBJECT Logic
   const handleSubjectChange = (val: string) => {
       setTag650(val);
-      if (val.length > 1) {
-          const matches = subjects.filter(s => s.heading.toLowerCase().includes(val.toLowerCase())).slice(0, 50);
+      if (val.length > 0) {
+          const uniqueSubjects = new Map<string, string>();
+          // Combine preset subjects and existing books subjects
+          subjects.forEach(s => uniqueSubjects.set(s.heading, s.dewey || ''));
+          books.forEach(b => {
+              if (b.subject && b.subject.toLowerCase().includes(val.toLowerCase())) {
+                  const dewey = b.callNumber.split(' ')[0] || '';
+                  if (!uniqueSubjects.has(b.subject)) {
+                      uniqueSubjects.set(b.subject, dewey);
+                  }
+              }
+          });
+          
+          const matches = Array.from(uniqueSubjects.entries())
+              .filter(([heading]) => heading.toLowerCase().includes(val.toLowerCase()))
+              .map(([heading, dewey]) => ({ heading, dewey }))
+              .slice(0, 10);
+              
           setSuggestedSubjects(matches);
           setShowSubjectSuggestions(true);
       } else {
@@ -223,11 +414,115 @@ const Cataloging: React.FC = () => {
       }
   };
 
-  const selectSubject = (sub: Subject) => {
+  const selectSubject = (sub: {heading: string, dewey: string}) => {
       setTag650(sub.heading);
-      setDewey(sub.dewey || dewey); // Auto-fill Dewey from Authority
+      if (sub.dewey && !dewey) setDewey(sub.dewey); // Auto-fill Dewey if empty
       setShowSubjectSuggestions(false);
   };
+
+  // 2. AUTHOR Logic (With Cutter Auto-fill)
+  const handleAuthorChange = (val: string) => {
+      setTag100(val);
+      if (val.length > 0) {
+          const uniqueAuthors = new Map<string, string>();
+          books.forEach(b => {
+              if (b.author && b.author.toLowerCase().includes(val.toLowerCase())) {
+                  // Extract cutter from existing call number (Assuming format: Dewey Cutter Year)
+                  const parts = b.callNumber.split(' ');
+                  // Try to find the part that looks like a Cutter (alphanumeric, usually index 1)
+                  const existingCutter = parts.length > 1 ? parts[1] : '';
+                  
+                  if (!uniqueAuthors.has(b.author) || (uniqueAuthors.get(b.author) === '' && existingCutter !== '')) {
+                      uniqueAuthors.set(b.author, existingCutter);
+                  }
+              }
+          });
+          const matches = Array.from(uniqueAuthors.entries())
+              .map(([name, cutter]) => ({ name, cutter }))
+              .slice(0, 10);
+          
+          setSuggestedAuthors(matches);
+          setShowAuthorSuggestions(true);
+      } else {
+          setShowAuthorSuggestions(false);
+      }
+  };
+
+  const selectAuthor = (item: {name: string, cutter: string}) => {
+      setTag100(item.name);
+      if (item.cutter) setCutter(item.cutter); // Auto-fill Cutter!
+      setShowAuthorSuggestions(false);
+  };
+
+  // 3. PUBLISHER Logic (With Place Auto-fill)
+  const handlePublisherChange = (val: string) => {
+      setTag260b(val);
+      if (val.length > 0) {
+          const uniquePubs = new Map<string, string>(); // Map Publisher Name -> Place
+          
+          books.forEach(b => {
+              if (b.publisher && b.publisher.toLowerCase().includes(val.toLowerCase())) {
+                  // Try extract place from MARC 260 $a
+                  let place = '';
+                  // Check explicit MARC data first
+                  if (b.marcData && b.marcData['260']) {
+                       // Assuming format: $aBangkok $bPublisher $c2024
+                       const parts = b.marcData['260'].split('$a');
+                       if (parts.length > 1) {
+                           place = parts[1].split('$')[0].trim();
+                       }
+                  } 
+                  
+                  // If not in MARC, can't reliably get it from flattened fields easily unless we stored it.
+                  // But existing logic in populateForm extracts it: 
+                  // tag260a = book.marcData?.['260']?.split('$a')?.[1]?.split('$')?.[0]?.trim() || '';
+                  
+                  // Store if unique, prefer entries with place
+                  if (!uniquePubs.has(b.publisher) || (uniquePubs.get(b.publisher) === '' && place !== '')) {
+                      uniquePubs.set(b.publisher, place);
+                  }
+              }
+          });
+          
+          const matches = Array.from(uniquePubs.entries())
+              .map(([name, place]) => ({ name, place }))
+              .slice(0, 10);
+
+          setSuggestedPublishers(matches);
+          setShowPublisherSuggestions(true);
+      } else {
+          setShowPublisherSuggestions(false);
+      }
+  };
+
+  const selectPublisher = (item: {name: string, place: string}) => {
+      setTag260b(item.name);
+      if (item.place) setTag260a(item.place); // Auto-fill Place!
+      setShowPublisherSuggestions(false);
+  };
+
+  // 4. SERIES Logic
+  const handleSeriesChange = (val: string) => {
+      setTag440(val);
+      if (val.length > 0) {
+          const uniqueSeries = new Set<string>();
+          books.forEach(b => {
+              if (b.marcData?.['440'] && b.marcData['440'].toLowerCase().includes(val.toLowerCase())) {
+                  uniqueSeries.add(b.marcData['440']);
+              }
+          });
+          setSuggestedSeries(Array.from(uniqueSeries).slice(0, 10));
+          setShowSeriesSuggestions(true);
+      } else {
+          setShowSeriesSuggestions(false);
+      }
+  };
+
+  const selectSeries = (val: string) => {
+      setTag440(val);
+      setShowSeriesSuggestions(false);
+  };
+
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
@@ -304,24 +599,23 @@ const Cataloging: React.FC = () => {
 
       const fullCallNumber = `${dewey} ${cutter} ${pubYearCall}`.trim();
       
-      // Parsing specific fields for the Book object mockup
-      const pub = tag260.split(':')[1]?.trim() || '';
-      const pages = tag300.split(':')[0]?.trim() || '';
+      // Combine split fields
+      const tag260 = `$a${tag260a} $b${tag260b} $c${tag260c}`.trim();
+      const tag300 = `$a${tag300a} $b${tag300b}`.trim();
+      const tag245Full = `${tag245a} $c${tag245c}`.trim();
 
       // Compile MARC Data (Standard + Custom)
       const marcDataPayload: Record<string, string> = {
           '020': tag020,
-          '041': tag041,
           '082': fullCallNumber,
           '100': tag100,
           '110': tag110,
-          '245': `${tag245a} ${tag245c}`.trim(),
+          '245': tag245Full,
           '246': tag246,
           '250': tag250,
           '260': tag260,
           '300': tag300,
           '440': tag440,
-          '500': tag500,
           '520': tag520,
           '541': tag541,
           '650': tag650,
@@ -340,8 +634,6 @@ const Cataloging: React.FC = () => {
       });
 
       const bookData: Book = {
-          // Use a temporary ID for Staging. 
-          // IMPORTANT: This ID will be overwritten by the Barcode when "Add Holdings" is confirmed for new books.
           id: (isEditMode && formId) ? formId : `PENDING-${Date.now()}`, 
           title: tag245a,
           author: tag100 || tag110 || 'ไม่ระบุ',
@@ -350,10 +642,10 @@ const Cataloging: React.FC = () => {
           status: 'Available',
           format: resourceType as any,
           subject: tag650,
-          pubYear: pubYearCall || tag260.split(':').pop()?.trim(),
+          pubYear: tag260c,
           coverUrl: tag902,
-          publisher: pub,
-          pages: pages,
+          publisher: tag260b,
+          pages: tag300a,
           description: tag520,
           ebookUrl: tag856,
           items: isEditMode ? (selectedBook?.items || []) : [], // Keep items if editing
@@ -362,7 +654,6 @@ const Cataloging: React.FC = () => {
       };
 
       if (isEditMode && formId) {
-          // If editing an existing book, save immediately
           Swal.fire({
               title: 'กำลังบันทึกข้อมูล...',
               allowOutsideClick: false,
@@ -373,10 +664,8 @@ const Cataloging: React.FC = () => {
           Swal.fire('สำเร็จ', 'บันทึกการแก้ไขเรียบร้อย', 'success');
           setSelectedBook(bookData);
       } else {
-          // If creating a NEW book, DO NOT SAVE to DB yet.
-          // Stage the data and move to Holdings tab.
           setSelectedBook(bookData);
-          setActiveTab('Item'); // Redirect to Holdings
+          setActiveTab('Item');
           Swal.fire({
               icon: 'info',
               title: 'ขั้นตอนต่อไป',
@@ -386,49 +675,32 @@ const Cataloging: React.FC = () => {
       }
   };
 
-  const resetForm = () => {
-      setIsEditMode(false);
-      setFormId('');
-      setResourceType('Book');
-      setDewey(''); setCutter(''); setPubYearCall('');
-      setTag020(''); setTag041('tha'); setTag100(''); setTag110('');
-      setTag245a(''); setTag245c(''); setTag246(''); setTag250('');
-      setTag260(''); setTag300(''); setTag440(''); setTag500('');
-      setTag520(''); setTag541(''); setTag650(''); setTag700('');
-      setTag710(''); setTag856(''); setTag902(''); setTag990('');
-      setExtraMarc([]);
-  };
-
-  // --- Holdings Logic ---
+  // --- Holdings Logic (Manage Item Barcodes) ---
   const handleAddHoldings = () => {
       if (!selectedBook) return;
 
       const newItems: Item[] = [];
-      const maxGlobal = getGlobalMaxBarcode(); // Get current max ID from whole DB
+      const maxGlobal = getGlobalMaxBarcode(); 
       
       if (holdingsMode === 'Manual') {
           if (!manualBarcode) { Swal.fire('ข้อมูลไม่ครบ', 'กรุณาระบุบาร์โค้ด', 'warning'); return; }
-          // Check for duplicate
           const exists = books.some(b => b.items?.some(i => i.barcode === manualBarcode));
           if (exists) { Swal.fire('ซ้ำ', `บาร์โค้ด ${manualBarcode} มีอยู่ในระบบแล้ว`, 'error'); return; }
 
           newItems.push({ barcode: manualBarcode, status: 'Available', location });
       } else {
-          // Auto - Sequential 7 digits starting 0000001
+          // Auto - Sequential 10 digits starting 0000000001
           const count = Math.max(1, Math.min(10, autoCopyCount)); 
-          
           for (let i = 1; i <= count; i++) {
               const nextVal = maxGlobal + i;
-              const autoCode = nextVal.toString().padStart(7, '0');
+              const autoCode = nextVal.toString().padStart(10, '0'); // Changed to 10 chars
               newItems.push({ barcode: autoCode, status: 'Available', location });
           }
       }
 
-      // CHECK: Is this a new book (not in DB yet) or an update?
       const isExistingBook = books.some(b => b.id === selectedBook.id);
 
       if (isExistingBook) {
-          // If editing/adding items to existing book -> Update
           const updatedBook = {
               ...selectedBook,
               items: [...(selectedBook.items || []), ...newItems],
@@ -438,21 +710,15 @@ const Cataloging: React.FC = () => {
           setSelectedBook(updatedBook);
           Swal.fire('สำเร็จ', `เพิ่มตัวเล่มสำเร็จ ${newItems.length} รายการ`, 'success');
       } else {
-          // If this was a staged new book -> Create (Add)
-          // IMPORTANT: Overwrite the temporary Book ID with the FIRST Barcode generated
-          // This ensures Book ID = Barcode (for the first copy)
           const primaryId = newItems[0].barcode;
-          
           const finalizedBook: Book = {
               ...selectedBook,
-              id: primaryId, // SYNC ID WITH BARCODE
+              id: primaryId, 
               items: newItems,
               maxReservations: maxReservations
           };
-
           addBook(finalizedBook);
           setSelectedBook(finalizedBook);
-          
           Swal.fire({
               icon: 'success',
               title: 'บันทึกสำเร็จ',
@@ -460,862 +726,1329 @@ const Cataloging: React.FC = () => {
               timer: 2500
           });
       }
-      
       setManualBarcode('');
   };
 
-  // --- Helpers for Dashboard ---
-  const getDetailedHolds = (book: Book) => {
-      const holds: {patronName: string, date: string, status: string, dueDate: string}[] = [];
+  const handleEditItem = (index: number, item: Item) => {
+      setEditingItemIndex(index);
+      setTempEditBarcode(item.barcode);
+      setTempEditStatus(item.status);
+      setTempEditNote(item.note || '');
+  };
+
+  const handleSaveEditItem = (index: number) => {
+      if (!selectedBook || !selectedBook.items) return;
+      if (!tempEditBarcode) { Swal.fire('ข้อมูลไม่ครบ', 'กรุณาระบุบาร์โค้ด', 'warning'); return; }
       
-      // Find active transaction for this book to get Due Date if checked out
-      let dueDate = '-';
-      for (const p of patrons) {
-          const activeTx = p.history.find(t => 
-              t.status === 'Active' && 
-              (t.barcode === book.id || book.items?.some(i => i.barcode === t.barcode))
-          );
-          if (activeTx) {
-              dueDate = activeTx.dueDate;
-              break; // Found one, use it
-          }
+      // Check Duplicate (excluding itself)
+      const currentBarcode = selectedBook.items[index].barcode;
+      if (tempEditBarcode !== currentBarcode) {
+          const exists = books.some(b => b.items?.some(i => i.barcode === tempEditBarcode));
+          if (exists) { Swal.fire('ซ้ำ', `บาร์โค้ด ${tempEditBarcode} มีอยู่ในระบบแล้ว`, 'error'); return; }
       }
 
-      patrons.forEach(p => {
+      const newItems = [...selectedBook.items];
+      newItems[index] = { 
+          ...newItems[index], 
+          barcode: tempEditBarcode,
+          status: tempEditStatus,
+          note: tempEditNote 
+      };
+      
+      const updatedBook = { ...selectedBook, items: newItems };
+      updateBookDetails(updatedBook);
+      setSelectedBook(updatedBook);
+      
+      setEditingItemIndex(null);
+      setTempEditBarcode('');
+      setTempEditStatus('');
+      setTempEditNote('');
+      const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 1500 });
+      Toast.fire({ icon: 'success', title: 'แก้ไขเรียบร้อย' });
+  };
+
+  const handleDeleteItem = async (index: number) => {
+      if (!selectedBook || !selectedBook.items) return;
+      
+      const itemToDelete = selectedBook.items[index];
+      
+      const result = await Swal.fire({
+          title: 'ยืนยันการลบตัวเล่ม?',
+          text: `ต้องการลบรายการบาร์โค้ด: ${itemToDelete.barcode} ใช่หรือไม่?`,
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonColor: '#ef4444',
+          cancelButtonColor: '#cbd5e1',
+          confirmButtonText: 'ยืนยันลบ',
+          cancelButtonText: 'ยกเลิก'
+      });
+
+      if (result.isConfirmed) {
+          const newItems = selectedBook.items.filter((_, i) => i !== index);
+          const updatedBook = { ...selectedBook, items: newItems };
+          
+          updateBookDetails(updatedBook);
+          setSelectedBook(updatedBook);
+          
+          Swal.fire('ลบสำเร็จ', 'ลบรายการตัวเล่มเรียบร้อยแล้ว', 'success');
+      }
+  };
+
+  // --- Import / Excel Logic (Updated with Duplicate Check) ---
+  const handleDownloadTemplate = () => {
+      const headers = [
+          "เลขทะเบียน (ID)", "ISBN (020)", "ผู้แต่ง - ชื่อบุคคล (100)", "ผู้แต่ง - นิติบุคคล (110)",
+          "ชื่อเรื่อง (245)", "$c ส่วนแจ้งความรับผิดชอบ", "ชื่อเรื่องที่แตกต่าง (246)", "ครั้งที่พิมพ์ (250)",
+          "เลขหมู่ (Dewey) (082)", "เลขประจำหนังสือ (Cutter) (082)", "ปีที่พิมพ์ (082)",
+          "สถานที่พิมพ์ (260$a)", "สำนักพิมพ์ (260$b)", "ปีที่พิมพ์ (260$c)",
+          "จำนวนหน้า (300$a)", "ภาพประกอบ (300$b)", "ชื่อชุด (440)", "สาระสังเขป (520)",
+          "ราคาหนังสือ (541)", "หัวเรื่อง (650)", "จำนวนเล่ม", "ผู้แต่งร่วม - บุคคล (700)",
+          "ผู้แต่งร่วม - นิติบุคคล (710)", "E-book / Multimedia (856)", "ภาพปก (902)", "แหล่งที่ได้รับ (990)"
+      ];
+      const ws = XLSX.utils.aoa_to_sheet([headers]);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Bib_Import_Template");
+      XLSX.writeFile(wb, "Library_Bibliographic_Template.xlsx");
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+          const bstr = evt.target?.result;
+          const wb = XLSX.read(bstr, { type: 'binary' });
+          const wsname = wb.SheetNames[0];
+          const ws = wb.Sheets[wsname];
+          const data: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+          if (data.length > 1) {
+              processExcelData(data.slice(1)); 
+          } else {
+              Swal.fire('ไฟล์ว่างเปล่า', 'ไม่พบข้อมูลในไฟล์ Excel', 'warning');
+          }
+      };
+      reader.readAsBinaryString(file);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const processExcelData = (rows: any[][]) => {
+      const parsed: Book[] = [];
+      rows.forEach((cols) => {
+          if (!cols || cols.length === 0) return;
+          const id = cols[0] ? String(cols[0]).trim() : '';
+          const qty = parseInt(cols[20]) || 1;
+          if (!id) return; 
+
+          const isbn = cols[1] ? String(cols[1]).trim() : '';
+          const author = cols[2] ? String(cols[2]).trim() : (cols[3] ? String(cols[3]).trim() : 'ไม่ระบุ');
+          const title = cols[4] ? String(cols[4]).trim() : 'ไม่มีชื่อเรื่อง';
+          const dewey = cols[8] ? String(cols[8]).trim() : '';
+          const cutter = cols[9] ? String(cols[9]).trim() : '';
+          const pubYearCall = cols[10] ? String(cols[10]).trim() : '';
+          const callNumber = `${dewey} ${cutter} ${pubYearCall}`.trim();
+          
+          const newItems: Item[] = [];
+          const startBarcodeVal = parseInt(id, 10);
+          for(let i=0; i<qty; i++) {
+              let barcode = id;
+              if (qty > 1 && !isNaN(startBarcodeVal)) {
+                  barcode = (startBarcodeVal + i).toString().padStart(10, '0'); // Updated to 10 digits
+              } else if (qty > 1) {
+                  barcode = `${id}-${i+1}`;
+              }
+              newItems.push({ barcode: barcode, status: 'Available', location: importConfig.location });
+          }
+
+          const marcData: Record<string, string> = {
+              '020': isbn,
+              '100': cols[2] ? String(cols[2]).trim() : '',
+              '110': cols[3] ? String(cols[3]).trim() : '',
+              '245': `${title} ${cols[5] ? String(cols[5]).trim() : ''}`.trim(),
+              '246': cols[6] ? String(cols[6]).trim() : '',
+              '250': cols[7] ? String(cols[7]).trim() : '',
+              '082': callNumber,
+              '260': `${cols[11] || ''} : ${cols[12] || ''} : ${cols[13] || ''}`,
+              '300': `${cols[14] || ''} : ${cols[15] || ''}`,
+              '440': cols[16] ? String(cols[16]).trim() : '',
+              '520': cols[17] ? String(cols[17]).trim() : '',
+              '541': cols[18] ? String(cols[18]).trim() : '',
+              '650': cols[19] ? String(cols[19]).trim() : '',
+              '700': cols[21] ? String(cols[21]).trim() : '',
+              '710': cols[22] ? String(cols[22]).trim() : '',
+              '856': cols[23] ? String(cols[23]).trim() : '',
+              '902': cols[24] ? String(cols[24]).trim() : '',
+              '990': cols[25] ? String(cols[25]).trim() : ''
+          };
+
+          parsed.push({
+              id: newItems[0]?.barcode || id,
+              title,
+              author,
+              isbn,
+              callNumber,
+              status: 'Available',
+              format: importConfig.resourceType as any,
+              subject: cols[19] ? String(cols[19]).trim() : '',
+              pubYear: cols[13] ? String(cols[13]).trim() : pubYearCall,
+              coverUrl: cols[24] ? String(cols[24]).trim() : '',
+              publisher: cols[12] ? String(cols[12]).trim() : '',
+              pages: cols[14] ? String(cols[14]).trim() : '',
+              description: cols[17] ? String(cols[17]).trim() : '',
+              ebookUrl: cols[23] ? String(cols[23]).trim() : '',
+              items: newItems,
+              maxReservations: 1,
+              marcData: marcData
+          });
+      });
+      setPreviewBooks(parsed);
+      setImportText('');
+  };
+
+  const handleImportParse = () => {
+      if (!importText.trim()) return;
+      const rows = importText.split('\n').map(row => row.trim()).filter(row => row);
+      const data = rows.map(row => row.split('\t'));
+      processExcelData(data);
+  };
+
+  const handleUpdatePreview = (idx: number, field: keyof Book, value: string) => {
+      const updated = [...previewBooks];
+      updated[idx] = { ...updated[idx], [field]: value };
+      setPreviewBooks(updated);
+  };
+
+  const handleDeletePreviewRow = (idx: number) => {
+      const updated = [...previewBooks];
+      updated.splice(idx, 1);
+      setPreviewBooks(updated);
+  };
+
+  const handleConfirmImport = async () => {
+      if (previewBooks.length === 0) return;
+      
+      let successCount = 0;
+      let mergedCount = 0;
+      let failedItems: { title: string, reason: string }[] = [];
+      
+      Swal.fire({ title: 'กำลังนำเข้าข้อมูล...', didOpen: () => Swal.showLoading() });
+      
+      for (const book of previewBooks) {
+          try {
+              // 1. Check if same ISBN already exists (Merge logic)
+              const existingBook = books.find(b => b.isbn === book.isbn && b.isbn !== '' && b.isbn !== 'N/A');
+              
+              if (existingBook) {
+                  // MERGE: Add new items to existing book
+                  const newItems = book.items || [];
+                  // Filter out any duplicates (same barcode) to be safe
+                  const uniqueNewItems = newItems.filter(newItem => 
+                      !existingBook.items?.some(existingItem => existingItem.barcode === newItem.barcode)
+                  );
+
+                  if (uniqueNewItems.length > 0) {
+                      const updatedBook = {
+                          ...existingBook,
+                          items: [...(existingBook.items || []), ...uniqueNewItems]
+                      };
+                      await updateBookDetails(updatedBook);
+                      mergedCount++;
+                  } else {
+                      failedItems.push({ title: book.title, reason: `ข้าม (มี ISBN และ Barcode นี้แล้ว)` });
+                  }
+              } else {
+                  // CREATE NEW: Check Duplicate ID/Barcode globally first
+                  const duplicateId = books.find(b => b.id === book.id || b.items?.some(i => i.barcode === book.id));
+                  if (duplicateId) {
+                      failedItems.push({ title: book.title, reason: `รหัสซ้ำ (ID: ${book.id})` });
+                      continue;
+                  }
+                  await addBook(book);
+                  successCount++;
+              }
+          } catch (error) {
+              failedItems.push({ title: book.title, reason: 'เกิดข้อผิดพลาดในการบันทึก' });
+          }
+      }
+      
+      let reportHtml = `<div class="text-left space-y-2">
+          <p class="text-green-600"><Check className="inline w-4 h-4"/> สร้างรายการใหม่: <b>${successCount}</b> รายการ</p>
+          <p class="text-blue-600"><Plus className="inline w-4 h-4"/> เพิ่มตัวเล่ม (Merge): <b>${mergedCount}</b> รายการ</p>
+      </div>`;
+      
+      if (failedItems.length > 0) {
+          reportHtml += `<div class="mt-3 text-left bg-red-50 p-3 rounded border border-red-200 text-sm max-h-40 overflow-y-auto">
+              <p class="font-bold text-red-700 mb-1">รายการที่ไม่สำเร็จ (${failedItems.length}):</p>
+              <ul class="list-disc pl-4 text-red-600">${failedItems.map(f => `<li>${f.title} <span class="text-xs text-red-400">(${f.reason})</span></li>`).join('')}</ul>
+          </div>`;
+      }
+      
+      Swal.fire({ 
+          icon: failedItems.length === 0 ? 'success' : 'warning', 
+          title: 'ผลการนำเข้าข้อมูล', 
+          html: reportHtml,
+          confirmButtonText: 'ตกลง'
+      });
+      
+      setPreviewBooks([]);
+  };
+
+  // --- Dashboard Helpers (Same) ---
+  const getLoanInfo = (barcode: string) => {
+      // Find which patron has this barcode active
+      for (const p of patrons) {
+          const tx = p.history.find(t => t.barcode === barcode && t.status === 'Active');
+          if (tx) return { patronName: p.name, dueDate: tx.dueDate, patronId: p.id };
+      }
+      return { patronName: '-', dueDate: '-', patronId: null };
+  };
+
+  const getActiveHoldsForBook = (book: Book) => {
+      const holds = [];
+      // 1. Check Patrons who have this book in reservedItems
+      for (const p of patrons) {
           if (p.reservedItems?.some(b => b.id === book.id)) {
+              // Logic to find which copy they might be waiting for, or just the first due copy
+              // For simplicity, we just look for *any* copy's due date if generic hold
+              let bestDueDate = '-';
+              // Find earliest due date among checked out copies
+              const dueDates = book.items?.filter(i => i.status === 'Checked Out').map(i => {
+                  const info = getLoanInfo(i.barcode);
+                  return info.dueDate;
+              }).filter(d => d !== '-') || [];
+              if (dueDates.length > 0) bestDueDate = dueDates[0]; // Simplification
+
               holds.push({
+                  barcode: book.id, // Usually title hold tracks book ID, but prompt requested barcode column
+                  requestDate: 'วันนี้', // Missing field in Patron.reservedItems logic, assuming today for now or needs update
                   patronName: p.name,
-                  date: 'วันนี้', // Mock as real reservation date isn't in Patron schema yet
-                  status: translateStatus(book.status),
-                  dueDate: dueDate
+                  patronId: p.id,
+                  status: 'กำลังจอง (Active)',
+                  dueDate: bestDueDate
               });
           }
-      });
+      }
       return holds;
+  };
+
+  // Helper to cancel hold (Bib level)
+  const handleCancelHold = async (patronId: string, bookId: string) => {
+      const result = await Swal.fire({
+          title: 'ยืนยันการลบรายการจอง?',
+          text: "คุณต้องการยกเลิกการจองนี้ใช่หรือไม่",
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonColor: '#ef4444',
+          cancelButtonColor: '#cbd5e1',
+          confirmButtonText: 'ยืนยันลบ',
+          cancelButtonText: 'ยกเลิก'
+      });
+
+      if (result.isConfirmed) {
+          const patron = patrons.find(p => p.id === patronId);
+          if (patron) {
+              const updatedReserved = patron.reservedItems?.filter(b => b.id !== bookId) || [];
+              updatePatron({ ...patron, reservedItems: updatedReserved });
+              Swal.fire('ลบสำเร็จ', 'รายการจองถูกยกเลิกแล้ว', 'success');
+          }
+      }
+  };
+
+  // Helper to get combined history
+  const getAllReservationHistory = (book: Book) => {
+      const activeHolds = getActiveHoldsForBook(book).map(h => ({ 
+          barcode: h.barcode, // Use the barcode from active holds
+          patronName: h.patronName, 
+          date: h.requestDate, 
+          status: 'กำลังจอง (Active)', 
+          actionDate: '-' 
+      }));
+      const pastHolds = book.reservationHistory?.map((h: any) => ({ 
+          barcode: h.barcode || book.id, // Fallback to book ID if barcode not preserved in legacy logs
+          patronName: h.patronName, 
+          date: h.requestDate, 
+          status: h.status, 
+          actionDate: h.actionDate || '-' 
+      })) || [];
+      return [...activeHolds, ...pastHolds];
   };
 
   const getBookLoanHistory = (book: Book) => {
       let history: Transaction[] = [];
       patrons.forEach(p => {
-          const matches = p.history.filter(t => 
-               t.barcode === book.id || book.items?.some(i => i.barcode === t.barcode)
-          );
+          const matches = p.history.filter(t => t.barcode === book.id || book.items?.some(i => i.barcode === t.barcode));
           history = [...history, ...matches];
       });
       return history.reverse(); 
   };
 
-  const getAllReservationHistory = (book: Book) => {
-      const activeHolds = getDetailedHolds(book).map(h => ({
-          patronName: h.patronName,
-          date: h.date,
-          status: 'กำลังจอง (Active)',
-          actionDate: '-'
-      }));
+  // --- Authority Control Logic ---
+  const getAuthorityData = () => {
+      const map = new Map<string, { name: string, count: number, info: string }>();
+      
+      const filteredBooks = authoritySearch 
+        ? books.filter(b => 
+            (b.title && b.title.includes(authoritySearch)) || 
+            (b.author && b.author.includes(authoritySearch)) ||
+            (b.subject && b.subject.includes(authoritySearch)) ||
+            (b.publisher && b.publisher.includes(authoritySearch))
+          ) 
+        : books;
 
-      const pastHolds = book.reservationHistory?.map(h => ({
-          patronName: h.patronName,
-          date: h.requestDate,
-          status: h.status === 'Fulfilled' ? 'รับหนังสือแล้ว' : h.status === 'Cancelled' ? 'ยกเลิก' : 'หมดอายุ',
-          actionDate: h.actionDate || '-'
-      })) || [];
+      filteredBooks.forEach(b => {
+          if (authorityType === 'Author') {
+              // Main Author
+              const name = b.author?.trim();
+              if (name && name !== 'ไม่ระบุ') {
+                  const key = name.toLowerCase();
+                  if (!map.has(key)) {
+                      // Try to extract Cutter from Call Number (Dewey Cutter Year) -> "000 ก123 2567" -> "ก123"
+                      const parts = b.callNumber.split(' ');
+                      const cutter = parts.length > 1 ? parts[1] : '-';
+                      map.set(key, { name: name, count: 0, info: cutter });
+                  }
+                  map.get(key)!.count++;
+              }
+              // Added Entry Author (700)
+              if (b.marcData?.['700']) {
+                  const addedName = b.marcData['700'].trim();
+                  if (addedName) {
+                      const key = addedName.toLowerCase();
+                      if (!map.has(key)) map.set(key, { name: addedName, count: 0, info: '-' });
+                      map.get(key)!.count++;
+                  }
+              }
+          } else if (authorityType === 'Publisher') {
+              const pub = b.publisher?.trim();
+              if (pub) {
+                  const key = pub.toLowerCase();
+                  if (!map.has(key)) map.set(key, { name: pub, count: 0, info: b.marcData?.['260'] || '-' }); // Show full imprint as info
+                  map.get(key)!.count++;
+              }
+          } else if (authorityType === 'Series') {
+              const series = b.marcData?.['440']?.trim();
+              if (series) {
+                  const key = series.toLowerCase();
+                  if (!map.has(key)) map.set(key, { name: series, count: 0, info: '-' });
+                  map.get(key)!.count++;
+              }
+          } else if (authorityType === 'Subject') {
+              const sub = b.subject?.trim();
+              if (sub) {
+                  const key = sub.toLowerCase();
+                  if (!map.has(key)) map.set(key, { name: sub, count: 0, info: b.callNumber.split(' ')[0] || '-' }); // Show Dewey as info
+                  map.get(key)!.count++;
+              }
+          }
+      });
+      return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'th'));
+  };
 
-      return [...activeHolds, ...pastHolds];
+  const getBooksByAuthority = (type: string, name: string) => {
+      return books.filter(b => {
+          if (type === 'Author') {
+              return b.author === name || b.marcData?.['700'] === name;
+          } else if (type === 'Publisher') {
+              return b.publisher === name;
+          } else if (type === 'Series') {
+              return b.marcData?.['440'] === name;
+          } else if (type === 'Subject') {
+              return b.subject === name;
+          }
+          return false;
+      });
+  };
+
+  const handleEditAuthority = async (type: string, oldName: string) => {
+      const { value: newName } = await Swal.fire({
+          title: `แก้ไข${type === 'Author' ? 'ชื่อผู้แต่ง' : type === 'Publisher' ? 'สำนักพิมพ์' : type === 'Series' ? 'ชื่อชุด' : 'หัวเรื่อง'}`,
+          input: 'text',
+          inputValue: oldName,
+          showCancelButton: true,
+          confirmButtonText: 'บันทึก',
+          cancelButtonText: 'ยกเลิก',
+          inputValidator: (value: string) => {
+              if (!value) return 'กรุณาระบุข้อมูล';
+          }
+      });
+
+      if (newName && newName !== oldName) {
+          Swal.fire({ title: 'กำลังปรับปรุงข้อมูล...', didOpen: () => Swal.showLoading() });
+          
+          const booksToUpdate: Book[] = [];
+          
+          books.forEach(b => {
+              let isModified = false;
+              let updatedBook = { ...b, marcData: { ...b.marcData } };
+
+              if (type === 'Author') {
+                  if (b.author === oldName) { updatedBook.author = newName; updatedBook.marcData['100'] = newName; isModified = true; }
+                  if (b.marcData?.['700'] === oldName) { updatedBook.marcData['700'] = newName; isModified = true; }
+              } else if (type === 'Publisher') {
+                  if (b.publisher === oldName) { 
+                      updatedBook.publisher = newName; 
+                      // Try to replace in 260 string if present
+                      if (updatedBook.marcData['260']) {
+                          updatedBook.marcData['260'] = updatedBook.marcData['260'].replace(oldName, newName);
+                      }
+                      isModified = true; 
+                  }
+              } else if (type === 'Series') {
+                  if (b.marcData?.['440'] === oldName) { updatedBook.marcData['440'] = newName; isModified = true; }
+              } else if (type === 'Subject') {
+                  if (b.subject === oldName) { updatedBook.subject = newName; updatedBook.marcData['650'] = newName; isModified = true; }
+              }
+
+              if (isModified) booksToUpdate.push(updatedBook);
+          });
+
+          // Execute updates
+          for (const book of booksToUpdate) {
+              await updateBookDetails(book);
+          }
+
+          Swal.fire({
+              title: 'สำเร็จ',
+              text: `ปรับปรุงข้อมูล ${booksToUpdate.length} รายการเรียบร้อยแล้ว`,
+              icon: 'success',
+              timer: 1500,
+              showConfirmButton: false
+          });
+      }
   };
 
   return (
     <div className="p-8 space-y-6 h-full flex flex-col">
-       {/* Header */}
+       {/* Header & Tabs code remains identical... */}
        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
             <h1 className="text-2xl font-bold text-slate-800">งานวิเคราะห์ทรัพยากร (Cataloging)</h1>
             <p className="text-slate-500 text-sm mt-1">สืบค้น, ลงรายการ, วิเคราะห์หมวดหมู่, และจัดการตัวเล่ม</p>
         </div>
         <div className="flex gap-2">
-            <button 
-                onClick={() => { resetForm(); setActiveTab('Bib'); }}
-                className="px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-blue-600 shadow-sm flex items-center gap-2" 
-            >
+            <button onClick={() => { resetForm(); setActiveTab('Bib'); }} className="px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-blue-600 shadow-sm flex items-center gap-2">
                 <PlusCircle className="w-4 h-4" /> สร้างบรรณานุกรมใหม่
             </button>
         </div>
       </div>
-
-      {/* Tabs */}
       <div className="border-b border-slate-200">
           <nav className="flex gap-6 overflow-x-auto">
-            <button onClick={() => setActiveTab('Search')} className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'Search' ? 'border-accent text-accent' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-                <Search className="w-4 h-4"/> สืบค้นรายการ (Search)
-            </button>
-            <button onClick={() => setActiveTab('Bib')} className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'Bib' ? 'border-accent text-accent' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-                <Database className="w-4 h-4"/> ข้อมูลบรรณานุกรม (Bib Record)
-            </button>
-            <button onClick={() => setActiveTab('Item')} className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'Item' ? 'border-accent text-accent' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-                <Box className="w-4 h-4"/> ข้อมูลตัวเล่ม (Holdings)
-            </button>
-            <button onClick={() => setActiveTab('Union')} className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'Union' ? 'border-accent text-accent' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-                <Globe className="w-4 h-4"/> สหบรรณานุกรม (Union Catalog)
-            </button>
+            <button onClick={() => setActiveTab('Search')} className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'Search' ? 'border-accent text-accent' : 'border-transparent text-slate-500 hover:text-slate-700'}`}><Search className="w-4 h-4"/> สืบค้นรายการ (Search)</button>
+            <button onClick={() => setActiveTab('Bib')} className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'Bib' ? 'border-accent text-accent' : 'border-transparent text-slate-500 hover:text-slate-700'}`}><Database className="w-4 h-4"/> ข้อมูลบรรณานุกรม (Bib Record)</button>
+            <button onClick={() => setActiveTab('Item')} className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'Item' ? 'border-accent text-accent' : 'border-transparent text-slate-500 hover:text-slate-700'}`}><Box className="w-4 h-4"/> ข้อมูลตัวเล่ม (Holdings)</button>
+            <button onClick={() => setActiveTab('Authority')} className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'Authority' ? 'border-accent text-accent' : 'border-transparent text-slate-500 hover:text-slate-700'}`}><Key className="w-4 h-4"/> การควบคุมรายการหลักฐาน (Authority Control)</button>
+            <button onClick={() => setActiveTab('Import')} className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'Import' ? 'border-accent text-accent' : 'border-transparent text-slate-500 hover:text-slate-700'}`}><FileSpreadsheet className="w-4 h-4"/> นำเข้าข้อมูล (Import)</button>
           </nav>
       </div>
 
-      {/* Content Area */}
       <div className="flex-1 flex flex-col min-h-0">
           
           {/* --- TAB 1: SEARCH & MANAGE --- */}
           {activeTab === 'Search' && (
               <div className="flex flex-col lg:flex-row gap-6 h-full">
-                  {/* Left: Search & Results */}
+                  {/* ... Search Tab Content (unchanged) ... */}
                   <div className={`flex-1 flex flex-col transition-all duration-300 ${selectedBook ? 'lg:w-1/2' : 'w-full'}`}>
                       <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm mb-6">
-                          {/* Search Inputs */}
                           <div className="flex items-center justify-between mb-4">
-                                <div className="flex gap-4">
-                                    <label className="flex items-center gap-2 cursor-pointer">
-                                        <input type="radio" checked={searchType === 'Basic'} onChange={() => setSearchType('Basic')} className="text-accent" />
-                                        <span className="text-sm font-medium text-slate-700">ค้นหาแบบง่าย (Basic)</span>
-                                    </label>
-                                    <label className="flex items-center gap-2 cursor-pointer">
-                                        <input type="radio" checked={searchType === 'Advanced'} onChange={() => setSearchType('Advanced')} className="text-accent" />
-                                        <span className="text-sm font-medium text-slate-700">ค้นหาขั้นสูง (Advanced)</span>
-                                    </label>
+                                <div className="flex bg-slate-100 p-1 rounded-lg">
+                                    <button onClick={() => setSearchMode('Barcode')} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${searchMode === 'Barcode' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>
+                                        <Barcode className="w-4 h-4 inline mr-1"/> สแกนบาร์โค้ด
+                                    </button>
+                                    <button onClick={() => setSearchMode('Basic')} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${searchMode === 'Basic' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>
+                                        <Search className="w-4 h-4 inline mr-1"/> ค้นหาแบบง่าย
+                                    </button>
+                                    <button onClick={() => setSearchMode('Advanced')} className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${searchMode === 'Advanced' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>
+                                        <Filter className="w-4 h-4 inline mr-1"/> ค้นหาขั้นสูง
+                                    </button>
+                                </div>
+                                {/* View Toggle */}
+                                <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
+                                    <button onClick={() => setViewMode('List')} className={`p-1.5 rounded ${viewMode === 'List' ? 'bg-white shadow-sm text-accent' : 'text-slate-400 hover:text-slate-600'}`} title="List View"><LayoutList className="w-4 h-4"/></button>
+                                    <button onClick={() => setViewMode('Table')} className={`p-1.5 rounded ${viewMode === 'Table' ? 'bg-white shadow-sm text-accent' : 'text-slate-400 hover:text-slate-600'}`} title="Table View"><LayoutGrid className="w-4 h-4"/></button>
                                 </div>
                           </div>
-                          {searchType === 'Basic' ? (
-                              <div className="flex flex-col md:flex-row gap-3">
-                                  <div className="relative w-full md:w-1/3">
-                                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                            <ScanLine className="h-4 w-4 text-slate-400" />
-                                        </div>
-                                        <input type="text" className="w-full border border-slate-300 rounded-lg pl-10 pr-3 py-2 text-sm focus:ring-2 focus:ring-accent outline-none font-mono" placeholder="สแกนบาร์โค้ด" value={searchBarcode} onChange={(e) => setSearchBarcode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearch()} autoFocus />
+                          
+                          <div className="relative">
+                              {searchMode === 'Barcode' && (
+                                  <div className="flex gap-2">
+                                      <div className="relative flex-1">
+                                          <ScanLine className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                                          <input 
+                                              type="text" 
+                                              autoFocus
+                                              className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent outline-none" 
+                                              placeholder="สแกนบาร์โค้ด (Scan Barcode)..." 
+                                              value={searchBarcode} 
+                                              onChange={(e) => setSearchBarcode(e.target.value)} 
+                                              onKeyDown={(e) => e.key === 'Enter' && handleSearch()} 
+                                          />
+                                      </div>
+                                      <button onClick={handleSearch} className="bg-accent text-white px-6 rounded-lg text-sm font-medium hover:bg-blue-600">ค้นหา</button>
                                   </div>
-                                  <div className="relative flex-1">
-                                      <input type="text" className="w-full border border-slate-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-accent outline-none" placeholder="ชื่อเรื่อง, ผู้แต่ง, ISBN..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearch()} />
-                                  </div>
-                                  <button onClick={handleSearch} className="bg-accent text-white px-6 py-2 rounded-lg text-sm font-medium hover:bg-blue-600">
-                                      <Search className="w-4 h-4" />
-                                  </button>
-                              </div>
-                          ) : (
-                              <div className="grid grid-cols-2 gap-3">
-                                  <input type="text" placeholder="ชื่อเรื่อง" className="border p-2 rounded text-sm" value={advTitle} onChange={e => setAdvTitle(e.target.value)} />
-                                  <input type="text" placeholder="ผู้แต่ง" className="border p-2 rounded text-sm" value={advAuthor} onChange={e => setAdvAuthor(e.target.value)} />
-                                  <input type="text" placeholder="ISBN" className="border p-2 rounded text-sm" value={advISBN} onChange={e => setAdvISBN(e.target.value)} />
-                                  <input type="text" placeholder="หัวเรื่อง" className="border p-2 rounded text-sm" value={advSubject} onChange={e => setAdvSubject(e.target.value)} />
-                                  <button onClick={handleSearch} className="col-span-2 bg-accent text-white py-2 rounded text-sm">ค้นหา</button>
-                              </div>
-                          )}
-                      </div>
+                              )}
 
-                      {/* Results Table */}
+                              {searchMode === 'Basic' && (
+                                  <div className="flex gap-2">
+                                      <input 
+                                          type="text" 
+                                          autoFocus
+                                          className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-accent outline-none" 
+                                          placeholder="ชื่อเรื่อง, ผู้แต่ง, ISBN, หัวเรื่อง..." 
+                                          value={searchQuery} 
+                                          onChange={(e) => setSearchQuery(e.target.value)} 
+                                          onKeyDown={(e) => e.key === 'Enter' && handleSearch()} 
+                                      />
+                                      <button onClick={handleSearch} className="bg-accent text-white px-6 rounded-lg text-sm font-medium hover:bg-blue-600"><Search className="w-4 h-4"/></button>
+                                  </div>
+                              )}
+
+                              {searchMode === 'Advanced' && (
+                                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-3">
+                                      <div className="grid grid-cols-2 gap-3">
+                                          <input type="text" placeholder="ชื่อเรื่อง (Title)" className="border p-2 rounded text-sm" value={advTitle} onChange={e => setAdvTitle(e.target.value)} />
+                                          <input type="text" placeholder="ผู้แต่ง (Author)" className="border p-2 rounded text-sm" value={advAuthor} onChange={e => setAdvAuthor(e.target.value)} />
+                                          <input type="text" placeholder="ISBN" className="border p-2 rounded text-sm" value={advISBN} onChange={e => setAdvISBN(e.target.value)} />
+                                          <input type="text" placeholder="หัวเรื่อง (Subject)" className="border p-2 rounded text-sm" value={advSubject} onChange={e => setAdvSubject(e.target.value)} />
+                                      </div>
+                                      <div className="grid grid-cols-4 gap-3">
+                                          <input type="text" placeholder="ปีที่พิมพ์ (Year)" className="border p-2 rounded text-sm" value={advPubYear} onChange={e => setAdvPubYear(e.target.value)} />
+                                          <input type="text" placeholder="ภาษา (Language)" className="border p-2 rounded text-sm" value={advLanguage} onChange={e => setAdvLanguage(e.target.value)} />
+                                          <select className="border p-2 rounded text-sm" value={advResourceType} onChange={e => setAdvResourceType(e.target.value)}>
+                                              <option value="">ทุกประเภททรัพยากร</option>
+                                              {resourceTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                                          </select>
+                                          <select className="border p-2 rounded text-sm" value={advLocation} onChange={e => setAdvLocation(e.target.value)}>
+                                              <option value="">ทุกสถานที่จัดเก็บ</option>
+                                              {locations.map(l => <option key={l} value={l}>{l}</option>)}
+                                          </select>
+                                      </div>
+                                      <div className="flex justify-end pt-2">
+                                          <button onClick={handleSearch} className="bg-accent text-white px-6 py-2 rounded-lg text-sm font-medium hover:bg-blue-600 flex items-center gap-2">
+                                              <Search className="w-4 h-4" /> ค้นหาขั้นสูง
+                                          </button>
+                                      </div>
+                                  </div>
+                              )}
+                          </div>
+                      </div>
+                      
+                      {/* Search Results */}
                       <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-                           <div className="p-4 bg-slate-50 border-b"><h3 className="font-bold text-slate-700 text-sm">ผลการสืบค้น ({searchResults.length})</h3></div>
                            <div className="flex-1 overflow-y-auto">
-                               <table className="w-full text-left text-sm">
-                                   <thead className="bg-slate-50 text-slate-600 font-medium sticky top-0 z-10 shadow-sm">
-                                       <tr>
-                                            <th className="px-4 py-3 w-16">ปก</th>
-                                            <th className="px-4 py-3">ชื่อเรื่อง / ผู้แต่ง</th>
-                                            <th className="px-4 py-3">ประเภท / ที่เก็บ</th>
-                                            <th className="px-4 py-3">เลขเรียก / รหัสตัวเล่ม</th>
-                                            <th className="px-4 py-3">สถานะ</th>
-                                            <th className="px-4 py-3"></th>
-                                        </tr>
-                                   </thead>
-                                   <tbody className="divide-y divide-slate-100">
-                                       {searchResults.map((book) => (
-                                           <tr key={book.id} className={`hover:bg-blue-50 cursor-pointer ${selectedBook?.id === book.id ? 'bg-blue-50 ring-1 ring-inset ring-blue-200' : ''}`} onClick={() => setSelectedBook(book)}>
-                                               <td className="px-4 py-3"><div className="w-10 h-14 bg-slate-200 rounded overflow-hidden">{book.coverUrl && <img src={book.coverUrl} className="w-full h-full object-cover" />}</div></td>
-                                               <td className="px-4 py-3">
-                                                    <div className="font-bold text-slate-800">{book.title}</div>
-                                                    <div className="text-xs text-slate-500">{book.author}</div>
-                                               </td>
-                                               <td className="px-4 py-3"><div className="text-slate-700">{book.format}</div><div className="text-xs text-slate-400 mt-1">{book.items?.[0]?.location || 'General'}</div></td>
-                                               <td className="px-4 py-3">
-                                                    <div className="font-medium">{book.callNumber}</div>
-                                                    <div className="flex flex-wrap gap-1 mt-1">
-                                                        {book.items && book.items.length > 0 ? (
-                                                            book.items.map(item => (
-                                                                <span key={item.barcode} className={`text-[10px] px-1.5 py-0.5 rounded border flex items-center gap-1 ${item.status === 'Available' ? 'bg-green-50 border-green-200 text-green-700' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
-                                                                    {item.barcode}
-                                                                    <div className={`w-1.5 h-1.5 rounded-full ${item.status === 'Available' ? 'bg-green-500' : 'bg-slate-400'}`}></div>
-                                                                </span>
-                                                            ))
-                                                        ) : (
-                                                            <span className="text-xs text-slate-400">-</span>
-                                                        )}
-                                                    </div>
-                                               </td>
-                                               <td className="px-4 py-3"><span className={`px-2 py-1 rounded-full text-xs font-medium ${book.status === 'Available' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{translateStatus(book.status)}</span></td>
-                                               <td className="px-4 py-3"><ArrowRight className="w-4 h-4 text-slate-400" /></td>
-                                           </tr>
-                                       ))}
-                                   </tbody>
-                               </table>
-                           </div>
-                      </div>
-                  </div>
-
-                  {/* Right: Management Dashboard */}
-                  {selectedBook && (
-                      <div className="w-full lg:w-1/2 bg-slate-50 p-6 rounded-xl border border-slate-200 shadow-inner flex flex-col animate-fadeIn overflow-y-auto">
-                           <div className="flex justify-between items-start mb-6">
-                               <div className="flex gap-4 w-full">
-                                   <img src={selectedBook.coverUrl || 'https://via.placeholder.com/150'} className="w-28 h-40 rounded shadow-md bg-white object-cover border" />
-                                   <div className="flex-1">
-                                       <h2 className="text-xl font-bold text-slate-800">{selectedBook.title}</h2>
-                                       <p className="text-slate-600 text-sm mb-2">{selectedBook.author}</p>
-                                       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-500 bg-white p-2 rounded border border-slate-100">
-                                           <div><span className="font-bold">ISBN:</span> {selectedBook.isbn}</div>
-                                           <div><span className="font-bold">Call No:</span> {selectedBook.callNumber}</div>
-                                           <div><span className="font-bold">Format:</span> {selectedBook.format}</div>
-                                           <div><span className="font-bold">Loc:</span> {selectedBook.items?.[0]?.location}</div>
-                                       </div>
-                                   </div>
-                               </div>
-                               <button onClick={() => setSelectedBook(null)}><X className="w-5 h-5 text-slate-400" /></button>
-                           </div>
-
-                           {/* Actions Menu - Grouped as requested */}
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-6">
-                               <button onClick={handleEditBib} className="bg-white p-2 rounded border hover:border-blue-500 flex flex-col items-center gap-1 text-xs font-medium text-slate-700 hover:text-blue-600 transition-colors shadow-sm"><Edit className="w-4 h-4"/> แก้ไขบรรณานุกรม</button>
-                               <button onClick={() => setShowMarcModal(true)} className="bg-white p-2 rounded border hover:border-purple-500 flex flex-col items-center gap-1 text-xs font-medium text-slate-700 hover:text-purple-600 transition-colors shadow-sm"><Code className="w-4 h-4"/> แก้ไขระเบียน MARC</button>
-                               <button onClick={() => setShowHistoryModal(true)} className="bg-white p-2 rounded border hover:border-blue-500 flex flex-col items-center gap-1 text-xs font-medium text-slate-700 hover:text-blue-600 transition-colors shadow-sm"><History className="w-4 h-4"/> ประวัติยืม-คืน</button>
-                               <button onClick={() => setShowHoldsModal(true)} className="bg-white p-2 rounded border hover:border-orange-500 flex flex-col items-center gap-1 text-xs font-medium text-slate-700 hover:text-orange-600 transition-colors shadow-sm"><Bookmark className="w-4 h-4"/> ประวัติรายการจอง</button>
-                               <button onClick={handleCopyBib} className="bg-white p-2 rounded border hover:border-green-500 flex flex-col items-center gap-1 text-xs font-medium text-slate-700 hover:text-green-600 transition-colors shadow-sm"><Copy className="w-4 h-4"/> คัดลอกรายการ</button>
-                               <button onClick={() => deleteBook(selectedBook.id)} className="bg-white p-2 rounded border hover:border-red-500 flex flex-col items-center gap-1 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors shadow-sm"><Trash2 className="w-4 h-4"/> ลบรายการ</button>
-                           </div>
-                           
-                           {/* Add link to Holdings tab since "Manage Holdings" button is removed from main grid */}
-                           <div className="text-right mb-2">
-                               <button onClick={() => setActiveTab('Item')} className="text-xs text-blue-600 hover:underline flex items-center justify-end gap-1">ไปที่จัดการตัวเล่ม <ArrowRight className="w-3 h-3" /></button>
-                           </div>
-
-                           {/* Holdings Summary */}
-                           <div className="mb-6">
-                               <h3 className="font-bold text-slate-700 text-sm flex items-center gap-2 mb-2">
-                                   <Box className="w-4 h-4 text-slate-500"/> 
-                                   รายการตัวเล่ม (Holdings Summary)
-                                   {selectedBook.items && selectedBook.items.length > 0 && (
-                                        <span className="bg-slate-100 border border-slate-200 text-slate-600 px-2 py-0.5 rounded-full text-[10px]">
-                                            มีทั้งหมด {selectedBook.items.length} ฉบับ
-                                        </span>
-                                   )}
-                               </h3>
-                               <div className="bg-white rounded border border-slate-200 overflow-hidden max-h-56 overflow-y-auto shadow-sm">
-                                   <table className="w-full text-xs text-left relative border-collapse">
-                                       <thead className="bg-slate-100 text-slate-700 sticky top-0 z-10 shadow-sm">
+                               {viewMode === 'Table' ? (
+                                   <table className="w-full text-left text-sm">
+                                       <thead className="bg-slate-50 text-slate-600 font-medium sticky top-0 z-10 shadow-sm">
                                            <tr>
-                                               <th className="px-4 py-3 w-12 text-center border-b">ลำดับ</th>
-                                               <th className="px-4 py-3 border-b">รหัสบาร์โค้ด (Barcode)</th>
-                                               <th className="px-4 py-3 border-b">สถานะ</th>
-                                               <th className="px-4 py-3 border-b">สถานที่</th>
+                                               <th className="px-4 py-3 w-16">ภาพปก</th>
+                                               <th className="px-4 py-3">ชื่อเรื่อง / ผู้แต่ง</th>
+                                               <th className="px-4 py-3">รหัสตัวเล่ม</th>
+                                               <th className="px-4 py-3">ประเภท / ที่เก็บ</th>
+                                               <th className="px-4 py-3">เลขเรียก</th>
+                                               <th className="px-4 py-3">สถานะ</th>
                                            </tr>
                                        </thead>
                                        <tbody className="divide-y divide-slate-100">
-                                           {selectedBook.items?.map((item, idx) => (
-                                               <tr key={idx} className="hover:bg-blue-50 transition-colors">
-                                                   <td className="px-4 py-2.5 text-slate-500 text-center font-mono bg-slate-50/50">{idx + 1}</td>
-                                                   <td className="px-4 py-2.5 font-mono font-bold text-slate-700 text-sm">{item.barcode}</td>
-                                                   <td className="px-4 py-2.5">
-                                                       <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-medium border shadow-sm ${
-                                                           item.status === 'Available' 
-                                                           ? 'bg-green-50 border-green-200 text-green-700' 
-                                                           : item.status === 'Checked Out'
-                                                           ? 'bg-blue-50 border-blue-200 text-blue-700'
-                                                           : item.status === 'Reserved'
-                                                           ? 'bg-orange-50 border-orange-200 text-orange-700'
-                                                           : 'bg-red-50 border-red-200 text-red-700'
-                                                       }`}>
-                                                           {item.status === 'Available' && <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-1.5"></span>}
-                                                           {translateStatus(item.status)}
-                                                       </span>
+                                           {searchResults.map((book) => (
+                                               <tr key={book.id} className={`hover:bg-blue-50 cursor-pointer ${selectedBook?.id === book.id ? 'bg-blue-50' : ''}`} onClick={() => setSelectedBook(book)}>
+                                                   <td className="px-4 py-3">
+                                                       <div className="w-10 h-14 bg-slate-200 rounded overflow-hidden shadow-sm">
+                                                           {book.coverUrl ? <img src={book.coverUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><ImageIcon className="w-4 h-4"/></div>}
+                                                       </div>
                                                    </td>
-                                                   <td className="px-4 py-2.5 text-slate-600">{item.location}</td>
+                                                   <td className="px-4 py-3">
+                                                       <div className="font-bold text-slate-800">{book.title}</div>
+                                                       <div className="text-xs text-slate-500">{book.author}</div>
+                                                   </td>
+                                                   <td className="px-4 py-3 font-mono text-slate-600">{book.id}</td>
+                                                   <td className="px-4 py-3">
+                                                       <div className="text-slate-700">{book.format}</div>
+                                                       <div className="text-xs text-slate-400">{book.items?.[0]?.location || 'ทั่วไป'}</div>
+                                                   </td>
+                                                   <td className="px-4 py-3 font-medium text-slate-700">{book.callNumber}</td>
+                                                   <td className="px-4 py-3"><span className={`px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(book.status)}`}>{getStatusLabel(book.status)}</span></td>
                                                </tr>
                                            ))}
-                                           {(!selectedBook.items || selectedBook.items.length === 0) && (
-                                               <tr><td colSpan={4} className="p-6 text-center text-slate-400 italic bg-slate-50/30">ยังไม่มีรายการตัวเล่มในระบบ</td></tr>
-                                           )}
                                        </tbody>
                                    </table>
-                               </div>
-                           </div>
-
-                           {/* Holds Management Preview */}
-                           <div className="bg-orange-50 border border-orange-100 rounded-lg p-4 mb-6">
-                               <h3 className="font-bold text-orange-800 text-sm flex items-center gap-2 mb-2"><Bookmark className="w-4 h-4" /> รายการจองปัจจุบัน (Active Holds)</h3>
-                               <div className="bg-white rounded border border-orange-100 overflow-hidden">
-                                   {getDetailedHolds(selectedBook).length > 0 ? (
-                                       <table className="w-full text-xs text-left">
-                                           <thead className="bg-orange-100/50 text-orange-800">
-                                                <tr>
-                                                    <th className="px-3 py-2">ชื่อผู้จอง</th>
-                                                    <th className="px-3 py-2">วันที่จอง</th>
-                                                    <th className="px-3 py-2">สถานะหนังสือ</th>
-                                                    <th className="px-3 py-2">กำหนดคืน (Due)</th>
-                                                </tr>
-                                           </thead>
-                                           <tbody className="divide-y divide-orange-100">
-                                               {getDetailedHolds(selectedBook).map((h, i) => (
-                                                   <tr key={i}>
-                                                       <td className="px-3 py-2 font-medium text-slate-700">{h.patronName}</td>
-                                                       <td className="px-3 py-2 text-slate-500">{h.date}</td>
-                                                       <td className="px-3 py-2 text-slate-600">{h.status}</td>
-                                                       <td className="px-3 py-2 font-mono text-orange-600">{h.dueDate}</td>
-                                                   </tr>
-                                               ))}
-                                           </tbody>
-                                       </table>
-                                   ) : (
-                                       <div className="p-3 text-center text-slate-400 text-xs">ไม่มีรายการจอง</div>
-                                   )}
-                               </div>
+                               ) : (
+                                   <div className="p-4 space-y-4">
+                                       {searchResults.map((book) => (
+                                           <div key={book.id} className={`flex gap-4 p-4 rounded-lg border cursor-pointer hover:shadow-md transition-shadow ${selectedBook?.id === book.id ? 'border-accent bg-blue-50' : 'border-slate-200 bg-white'}`} onClick={() => setSelectedBook(book)}>
+                                               <div className="w-20 h-28 bg-slate-200 rounded overflow-hidden flex-shrink-0 shadow-sm">
+                                                   {book.coverUrl ? <img src={book.coverUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><ImageIcon className="w-8 h-8"/></div>}
+                                               </div>
+                                               <div className="flex-1 min-w-0">
+                                                   <h4 className="font-bold text-slate-800 text-lg mb-1">{book.title}</h4>
+                                                   <p className="text-slate-600 text-sm mb-2">โดย {book.author}</p>
+                                                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-500">
+                                                       <div><span className="font-bold">ID:</span> {book.id}</div>
+                                                       <div><span className="font-bold">Call No:</span> {book.callNumber}</div>
+                                                       <div><span className="font-bold">Type:</span> {book.format}</div>
+                                                       <div><span className="font-bold">Loc:</span> {book.items?.[0]?.location || '-'}</div>
+                                                   </div>
+                                               </div>
+                                               <div className="flex flex-col justify-between items-end">
+                                                   <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(book.status)}`}>{getStatusLabel(book.status)}</span>
+                                                   <ArrowRight className="w-5 h-5 text-slate-300" />
+                                               </div>
+                                           </div>
+                                       ))}
+                                   </div>
+                               )}
                            </div>
                       </div>
-                  )}
-              </div>
-          )}
-
-          {/* ... (rest of the file remains unchanged from previous state) ... */}
-          {/* Note: I'm only including the updated parts above. The below XML block must contain the FULL content as per instructions. 
-              The changes above cover logic within Cataloging component. 
-              I will now output the full file content with the applied changes.
-          */}
-          {/* --- TAB 2: BIB RECORD (3 SECTIONS) --- */}
-          {activeTab === 'Bib' && (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm h-full overflow-y-auto animate-fadeIn flex flex-col">
-                <div className="p-6 border-b flex justify-between items-center bg-slate-50">
-                    <h3 className="font-bold text-lg flex items-center gap-2">
-                        <Database className="w-5 h-5 text-accent" /> 
-                        {isEditMode ? 'แก้ไขข้อมูลบรรณานุกรม' : 'สร้างบรรณานุกรมใหม่'}
-                    </h3>
-                    <div className="flex gap-2">
-                        <button onClick={resetForm} className="px-4 py-2 border rounded hover:bg-slate-100">ล้างค่า</button>
-                        <button onClick={handleSaveBib} className="px-6 py-2 bg-green-600 text-white rounded font-bold hover:bg-green-700 flex items-center gap-2">
-                            {isEditMode ? <Save className="w-4 h-4"/> : <ArrowRight className="w-4 h-4"/>} 
-                            {isEditMode ? 'บันทึก' : 'ถัดไป (ตัวเล่ม)'}
+                  </div>
+                  {/* ... Selected Book Details (unchanged) ... */}
+                  {selectedBook && (
+                    <div className="w-full lg:w-1/2 bg-white p-8 rounded-xl border border-slate-200 shadow-xl flex flex-col animate-fadeIn overflow-y-auto relative">
+                        {/* Close Button Top Right */}
+                        <button onClick={() => setSelectedBook(null)} className="absolute top-6 right-6 text-slate-400 hover:text-slate-600">
+                            <X className="w-6 h-6" />
                         </button>
-                    </div>
-                </div>
 
-                <div className="p-8 space-y-8">
-                    {/* Section 1: Resource Type & Location */}
-                    <section className="bg-slate-50 p-6 rounded-xl border border-slate-200">
-                        <h4 className="text-md font-bold text-slate-800 mb-4 flex items-center gap-2 border-b pb-2">
-                            <span className="bg-slate-800 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs">1</span>
-                            ข้อมูลประเภทและสถานที่จัดเก็บ (Resource & Location)
-                        </h4>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-1">ประเภททรัพยากร (Resource Type) <span className="text-red-500">*</span></label>
-                                <select className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-accent" value={resourceType} onChange={e => setResourceType(e.target.value)}>
-                                    {resourceTypes.map(type => (
-                                        <option key={type} value={type}>{type}</option>
-                                    ))}
-                                </select>
+                        {/* Header Section: Image + Info */}
+                        <div className="flex flex-col md:flex-row gap-8 mb-8">
+                            {/* Cover Image */}
+                            <div className="w-40 h-56 bg-white border border-slate-200 shadow-sm rounded-lg flex items-center justify-center flex-shrink-0 self-center md:self-start">
+                                {selectedBook.coverUrl ? (
+                                    <img src={selectedBook.coverUrl} className="w-full h-full object-contain p-1" />
+                                ) : (
+                                    <div className="text-slate-300">
+                                        <div className="border-2 border-slate-300 rounded p-1 inline-block">
+                                            <span className="font-bold text-lg">?</span>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-1">สถานที่จัดเก็บ (Location) <span className="text-red-500">*</span></label>
-                                <select className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-accent" value={location} onChange={e => setLocation(e.target.value)}>
-                                    {locations.map(loc => (
-                                        <option key={loc} value={loc}>{loc}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        </div>
-                    </section>
 
-                    {/* Section 2: Call Number */}
-                    <section className="bg-blue-50 p-6 rounded-xl border border-blue-100">
-                        <h4 className="text-md font-bold text-blue-800 mb-4 flex items-center gap-2 border-b border-blue-200 pb-2">
-                            <span className="bg-blue-800 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs">2</span>
-                            เลขเรียกหนังสือ (Call Number) - อิง Tag 082
-                        </h4>
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                            <div className="md:col-span-1">
-                                <label className="block text-sm font-bold text-slate-700 mb-1">เลขหมู่ (Dewey) <span className="text-red-500">*</span></label>
-                                <input type="text" className="w-full border rounded px-3 py-2" value={dewey} onChange={e => setDewey(e.target.value)} placeholder="000-999" />
-                            </div>
-                            <div className="md:col-span-1">
-                                <label className="block text-sm font-bold text-slate-700 mb-1">เลขประจำหนังสือ (Cutter) <span className="text-red-500">*</span></label>
-                                <input type="text" className="w-full border rounded px-3 py-2" value={cutter} onChange={e => setCutter(e.target.value)} placeholder="อ123" />
-                            </div>
-                             <div className="md:col-span-1">
-                                <label className="block text-sm font-bold text-slate-700 mb-1">ปีที่พิมพ์</label>
-                                <input type="text" className="w-full border rounded px-3 py-2" value={pubYearCall} onChange={e => setPubYearCall(e.target.value)} placeholder="2568" />
-                            </div>
-                            <div className="md:col-span-1">
-                                <button onClick={generateAutoCallNumber} className="w-full bg-blue-600 text-white py-2 rounded font-medium hover:bg-blue-700 text-sm flex items-center justify-center gap-2">
-                                    <Tag className="w-4 h-4" /> สร้างอัตโนมัติ
-                                </button>
-                            </div>
-                        </div>
-                        <div className="mt-2 text-sm text-blue-700">
-                            <strong>Preview:</strong> <span className="font-mono bg-white px-2 py-1 rounded border">{dewey} {cutter} {pubYearCall}</span>
-                        </div>
-                    </section>
+                            {/* Basic Info */}
+                            <div className="flex-1 min-w-0 pt-2">
+                                <h2 className="text-2xl font-bold text-slate-800 leading-tight mb-2">{selectedBook.title}</h2>
+                                <p className="text-slate-500 text-lg mb-6">{selectedBook.author}</p>
 
-                    {/* Section 3: MARC 21 */}
-                    <section className="border border-slate-200 p-6 rounded-xl">
-                        <h4 className="text-md font-bold text-slate-800 mb-4 flex items-center gap-2 border-b pb-2">
-                            <span className="bg-slate-800 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs">3</span>
-                            การลงรายการ MARC 21 (Bibliographic Data)
-                        </h4>
-                        <div className="space-y-4">
-                            <div className="grid grid-cols-12 gap-4 items-center">
-                                <label className="col-span-3 text-right text-sm font-bold text-slate-600">ISBN (020)</label>
-                                <input type="text" className="col-span-9 border rounded px-3 py-2 text-sm" value={tag020} onChange={e => setTag020(e.target.value)} placeholder="เลขมาตรฐานสากลประจำหนังสือ" />
-                            </div>
-                            <div className="grid grid-cols-12 gap-4 items-center">
-                                <label className="col-span-3 text-right text-sm font-bold text-slate-600">รหัสภาษา (041)</label>
-                                <input type="text" className="col-span-9 border rounded px-3 py-2 text-sm" value={tag041} onChange={e => setTag041(e.target.value)} />
-                            </div>
-                            <div className="grid grid-cols-12 gap-4 items-center">
-                                <label className="col-span-3 text-right text-sm font-bold text-slate-600">ผู้แต่ง - ชื่อบุคคล (100)</label>
-                                <input type="text" className="col-span-9 border rounded px-3 py-2 text-sm" value={tag100} onChange={e => setTag100(e.target.value)} placeholder="ชื่อบุคคล" />
-                            </div>
-                            <div className="grid grid-cols-12 gap-4 items-center">
-                                <label className="col-span-3 text-right text-sm font-bold text-slate-600">ผู้แต่ง - นิติบุคคล (110)</label>
-                                <input type="text" className="col-span-9 border rounded px-3 py-2 text-sm" value={tag110} onChange={e => setTag110(e.target.value)} placeholder="ชื่อนิติบุคคล" />
-                            </div>
-                             <div className="grid grid-cols-12 gap-4 items-center">
-                                <label className="col-span-3 text-right text-sm font-bold text-slate-600">ชื่อเรื่อง (245) <span className="text-red-500">*</span></label>
-                                <div className="col-span-9 flex gap-2">
-                                    <input type="text" className="flex-1 border rounded px-3 py-2 text-sm" value={tag245a} onChange={e => setTag245a(e.target.value)} placeholder="ชื่อเรื่อง (หน้าปกใน)" />
-                                    <input type="text" className="flex-1 border rounded px-3 py-2 text-sm" value={tag245c} onChange={e => setTag245c(e.target.value)} placeholder="ส่วนแจ้งความรับผิดชอบ" />
+                                <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 grid grid-cols-2 gap-y-2 gap-x-8 text-sm">
+                                    <div className="flex gap-2">
+                                        <span className="font-bold text-slate-700 w-16">ISBN:</span>
+                                        <span className="text-slate-600 truncate">{selectedBook.isbn}</span>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <span className="font-bold text-slate-700 w-16">Call No:</span>
+                                        <span className="text-slate-600">{selectedBook.callNumber}</span>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <span className="font-bold text-slate-700 w-16">Format:</span>
+                                        <span className="text-slate-600">{selectedBook.format}</span>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <span className="font-bold text-slate-700 w-16">Loc:</span>
+                                        <span className="text-slate-600">{selectedBook.items?.[0]?.location || '-'}</span>
+                                    </div>
                                 </div>
                             </div>
-                            <div className="grid grid-cols-12 gap-4 items-center">
-                                <label className="col-span-3 text-right text-sm font-bold text-slate-600">ชื่อเรื่องที่แตกต่าง (246)</label>
-                                <input type="text" className="col-span-9 border rounded px-3 py-2 text-sm" value={tag246} onChange={e => setTag246(e.target.value)} placeholder="ชื่อเรื่อง (หน้าปกนอก)" />
+                        </div>
+
+                        {/* Action Buttons Grid */}
+                        <div className="grid grid-cols-3 gap-4 mb-8">
+                            <button onClick={handleEditBib} className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm hover:shadow-md hover:border-blue-300 transition-all flex flex-col items-center gap-2 group">
+                                <Edit className="w-5 h-5 text-slate-600 group-hover:text-blue-600" />
+                                <span className="text-xs font-medium text-slate-600 group-hover:text-blue-600">แก้ไขบรรณานุกรม</span>
+                            </button>
+                            <button onClick={() => setShowMarcModal(true)} className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm hover:shadow-md hover:border-blue-300 transition-all flex flex-col items-center gap-2 group">
+                                <Code className="w-5 h-5 text-slate-600 group-hover:text-blue-600" />
+                                <span className="text-xs font-medium text-slate-600 group-hover:text-blue-600">แก้ไขระเบียน MARC</span>
+                            </button>
+                            <button onClick={() => setShowHistoryModal(true)} className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm hover:shadow-md hover:border-blue-300 transition-all flex flex-col items-center gap-2 group">
+                                <History className="w-5 h-5 text-slate-600 group-hover:text-blue-600" />
+                                <span className="text-xs font-medium text-slate-600 group-hover:text-blue-600">ประวัติยืม-คืน</span>
+                            </button>
+                            <button onClick={() => setShowHoldsModal(true)} className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm hover:shadow-md hover:border-blue-300 transition-all flex flex-col items-center gap-2 group">
+                                <Bookmark className="w-5 h-5 text-slate-600 group-hover:text-blue-600" />
+                                <span className="text-xs font-medium text-slate-600 group-hover:text-blue-600">ประวัติการจอง</span>
+                            </button>
+                            <button onClick={handleCopyBib} className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm hover:shadow-md hover:border-blue-300 transition-all flex flex-col items-center gap-2 group">
+                                <Copy className="w-5 h-5 text-slate-600 group-hover:text-blue-600" />
+                                <span className="text-xs font-medium text-slate-600 group-hover:text-blue-600">คัดลอกรายการ</span>
+                            </button>
+                            <button onClick={() => handleDeleteBook(selectedBook.id)} className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm hover:shadow-md hover:border-red-300 transition-all flex flex-col items-center gap-2 group">
+                                <Trash2 className="w-5 h-5 text-red-500 group-hover:text-red-600" />
+                                <span className="text-xs font-medium text-red-500 group-hover:text-red-600">ลบรายการ</span>
+                            </button>
+                        </div>
+
+                        {/* Holdings Section */}
+                        <div>
+                            <button onClick={() => setActiveTab('Item')} className="text-blue-600 text-sm font-medium hover:underline flex items-center gap-1 mb-4">
+                                ไปที่จัดการตัวเล่ม <ArrowRight className="w-4 h-4" />
+                            </button>
+
+                            <div className="flex items-center gap-2 mb-4">
+                                <Box className="w-5 h-5 text-slate-500" />
+                                <h3 className="font-bold text-slate-700">รายการตัวเล่ม (Holdings Summary)</h3>
+                                <span className="bg-slate-100 text-slate-600 text-xs px-2 py-1 rounded-full border border-slate-200">
+                                    มีทั้งหมด {selectedBook.items?.length || 0} ฉบับ
+                                </span>
                             </div>
-                             <div className="grid grid-cols-12 gap-4 items-center">
-                                <label className="col-span-3 text-right text-sm font-bold text-slate-600">ครั้งที่พิมพ์ (250)</label>
-                                <input type="text" className="col-span-9 border rounded px-3 py-2 text-sm" value={tag250} onChange={e => setTag250(e.target.value)} />
+
+                            <div className="border border-slate-200 rounded-lg overflow-hidden mb-6">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
+                                        <tr>
+                                            <th className="px-6 py-3 w-16 text-center">ลำดับ</th>
+                                            <th className="px-6 py-3">รหัสบาร์โค้ด (Barcode)</th>
+                                            <th className="px-6 py-3">สถานะ</th>
+                                            <th className="px-6 py-3">สถานที่</th>
+                                            <th className="px-6 py-3">กำหนดส่ง</th>
+                                            <th className="px-6 py-3">ชื่อผู้ยืม</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {(selectedBook.items || []).slice(0, 5).map((item, idx) => {
+                                            const loanInfo = item.status === 'Checked Out' ? getLoanInfo(item.barcode) : { patronName: '-', dueDate: '-' };
+                                            return (
+                                                <tr key={idx} className="hover:bg-slate-50">
+                                                    <td className="px-6 py-3 text-center text-slate-500">{idx + 1}</td>
+                                                    <td className="px-6 py-3 font-mono font-bold text-slate-700">{item.barcode}</td>
+                                                    <td className="px-6 py-3">
+                                                        <span className={`px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1 w-fit border ${getStatusColor(item.status)}`}>
+                                                            {item.status === 'Available' && <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>}
+                                                            {getStatusLabel(item.status)}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-3 text-slate-500">{item.location}</td>
+                                                    <td className="px-6 py-3 text-slate-600">{loanInfo.dueDate}</td>
+                                                    <td className="px-6 py-3 text-slate-600">{loanInfo.patronName}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                        {(!selectedBook.items || selectedBook.items.length === 0) && (
+                                            <tr><td colSpan={6} className="p-6 text-center text-slate-400">ยังไม่มีข้อมูลตัวเล่ม</td></tr>
+                                        )}
+                                        {(selectedBook.items?.length || 0) > 5 && (
+                                            <tr><td colSpan={6} className="p-2 text-center text-xs text-slate-400 bg-slate-50">แสดง 5 รายการแรก จากทั้งหมด {selectedBook.items?.length}</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
                             </div>
-                            <div className="grid grid-cols-12 gap-4 items-center">
-                                <label className="col-span-3 text-right text-sm font-bold text-slate-600">พิมพลักษณ์ (260)</label>
-                                <input type="text" className="col-span-9 border rounded px-3 py-2 text-sm" value={tag260} onChange={e => setTag260(e.target.value)} placeholder="สถานที่ : สำนักพิมพ์ : ปีที่พิมพ์" />
-                            </div>
-                             <div className="grid grid-cols-12 gap-4 items-center">
-                                <label className="col-span-3 text-right text-sm font-bold text-slate-600">ลักษณะทางกายภาพ (300)</label>
-                                <input type="text" className="col-span-9 border rounded px-3 py-2 text-sm" value={tag300} onChange={e => setTag300(e.target.value)} placeholder="จำนวนหน้า : ภาพประกอบ : ขนาด ซม. : วัสดุประกอบ" />
-                            </div>
-                            <div className="grid grid-cols-12 gap-4 items-center">
-                                <label className="col-span-3 text-right text-sm font-bold text-slate-600">ชื่อชุด (440)</label>
-                                <input type="text" className="col-span-9 border rounded px-3 py-2 text-sm" value={tag440} onChange={e => setTag440(e.target.value)} />
-                            </div>
-                            <div className="grid grid-cols-12 gap-4 items-center">
-                                <label className="col-span-3 text-right text-sm font-bold text-slate-600">หมายเหตุทั่วไป (500)</label>
-                                <textarea className="col-span-9 border rounded px-3 py-2 text-sm" value={tag500} onChange={e => setTag500(e.target.value)} rows={2}></textarea>
-                            </div>
-                            <div className="grid grid-cols-12 gap-4 items-center">
-                                <label className="col-span-3 text-right text-sm font-bold text-slate-600">สาระสังเขป (520)</label>
-                                <textarea className="col-span-9 border rounded px-3 py-2 text-sm" value={tag520} onChange={e => setTag520(e.target.value)} rows={3}></textarea>
-                            </div>
-                             <div className="grid grid-cols-12 gap-4 items-center">
-                                <label className="col-span-3 text-right text-sm font-bold text-slate-600">ราคาหนังสือ (541)</label>
-                                <input type="text" className="col-span-9 border rounded px-3 py-2 text-sm" value={tag541} onChange={e => setTag541(e.target.value)} />
-                            </div>
-                            <div className="grid grid-cols-12 gap-4 items-start relative">
-                                <label className="col-span-3 text-right text-sm font-bold text-slate-600 pt-2">หัวเรื่อง (650)</label>
-                                <div className="col-span-9 relative">
-                                    <div className="flex gap-2">
-                                        <input 
-                                            type="text" 
-                                            className="w-full border rounded px-3 py-2 text-sm" 
-                                            value={tag650} 
-                                            onChange={e => handleSubjectChange(e.target.value)} 
-                                            placeholder="พิมพ์เพื่อค้นหาหัวเรื่องอัตโนมัติ..."
-                                        />
-                                        <button className="bg-slate-100 border px-3 py-2 rounded hover:bg-slate-200" title="คู่มือหัวเรื่อง"><BookOpen className="w-4 h-4"/></button>
+
+                            {/* Active Holds Section */}
+                            <div className="bg-orange-50 border border-orange-100 rounded-xl p-6 mb-6">
+                                <div className="flex items-center gap-2 mb-4 text-orange-800">
+                                    <Bookmark className="w-5 h-5" />
+                                    <h3 className="font-bold">รายการจองปัจจุบัน (Active Holds)</h3>
+                                </div>
+                                
+                                {getActiveHoldsForBook(selectedBook).length > 0 ? (
+                                    <div className="bg-white rounded-lg border border-orange-200 overflow-hidden">
+                                        <table className="w-full text-sm">
+                                            <thead className="bg-orange-100 text-orange-800">
+                                                <tr>
+                                                    <th className="p-3 text-left">รหัสบาร์โค้ด (Barcode)</th>
+                                                    <th className="p-3 text-left">วันที่จอง</th>
+                                                    <th className="p-3 text-left">สมาชิก</th>
+                                                    <th className="p-3 text-left">สถานภาพ</th>
+                                                    <th className="p-3 text-left">กำหนดคืน</th>
+                                                    <th className="p-3 text-center">ลบ</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-orange-100">
+                                                {getActiveHoldsForBook(selectedBook).map((h, i) => (
+                                                    <tr key={i}>
+                                                        <td className="p-3 font-mono">{h.barcode}</td>
+                                                        <td className="p-3">{h.requestDate}</td>
+                                                        <td className="p-3">{h.patronName}</td>
+                                                        <td className="p-3"><span className="px-2 py-1 bg-orange-100 text-orange-700 rounded-full text-xs font-medium">{h.status}</span></td>
+                                                        <td className="p-3">{h.dueDate}</td>
+                                                        <td className="p-3 text-center">
+                                                            <button onClick={() => handleCancelHold(h.patronId, selectedBook.id)} className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded">
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
                                     </div>
-                                    {showSubjectSuggestions && (
-                                        <div className="absolute z-10 w-full bg-white border rounded-lg shadow-lg mt-1 max-h-40 overflow-y-auto">
-                                            {suggestedSubjects.map(sub => (
-                                                <div key={sub.id} className="px-4 py-2 hover:bg-blue-50 cursor-pointer text-sm flex justify-between" onClick={() => selectSubject(sub)}>
-                                                    <span>{sub.heading}</span>
-                                                    <span className="text-slate-400 text-xs">{sub.dewey}</span>
-                                                </div>
-                                            ))}
-                                            {suggestedSubjects.length === 0 && (
-                                                <div className="px-4 py-2 text-slate-500 text-sm">ไม่พบหัวเรื่อง <button className="text-blue-600 hover:underline ml-2" onClick={() => {addSubject({id: Date.now().toString(), heading: tag650, dewey: dewey}); setShowSubjectSuggestions(false);}}>เพิ่มใหม่ (Authority)</button></div>
-                                            )}
+                                ) : (
+                                    <div className="bg-white rounded-lg border border-orange-200 p-8 text-center text-slate-400 text-sm">
+                                        ไม่มีรายการจอง
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Detailed Bibliographic Info */}
+                            <div className="border-t border-slate-200 pt-6">
+                                <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
+                                    <FileText className="w-5 h-5 text-slate-500" /> ข้อมูลบรรณานุกรมโดยละเอียด
+                                </h3>
+                                <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 text-sm space-y-3">
+                                    <div className="grid grid-cols-12 gap-4">
+                                        <div className="col-span-3 font-bold text-slate-500 text-right">ชื่อเรื่อง (Title):</div>
+                                        <div className="col-span-9 text-slate-800 font-medium">{selectedBook.title}</div>
+                                    </div>
+                                    <div className="grid grid-cols-12 gap-4">
+                                        <div className="col-span-3 font-bold text-slate-500 text-right">ผู้แต่ง (Author):</div>
+                                        <div className="col-span-9 text-slate-800">{selectedBook.author}</div>
+                                    </div>
+                                    <div className="grid grid-cols-12 gap-4">
+                                        <div className="col-span-3 font-bold text-slate-500 text-right">พิมพลักษณ์ (Imprint):</div>
+                                        <div className="col-span-9 text-slate-800">
+                                            {selectedBook.publisher ? `${selectedBook.publisher}` : ''}
+                                            {selectedBook.pubYear ? `, ${selectedBook.pubYear}` : ''}
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-12 gap-4">
+                                        <div className="col-span-3 font-bold text-slate-500 text-right">ลักษณะทางกายภาพ:</div>
+                                        <div className="col-span-9 text-slate-800">{selectedBook.pages || '-'}</div>
+                                    </div>
+                                    {selectedBook.description && (
+                                        <div className="grid grid-cols-12 gap-4">
+                                            <div className="col-span-3 font-bold text-slate-500 text-right">สาระสังเขป:</div>
+                                            <div className="col-span-9 text-slate-800">{selectedBook.description}</div>
+                                        </div>
+                                    )}
+                                    {selectedBook.subject && (
+                                        <div className="grid grid-cols-12 gap-4">
+                                            <div className="col-span-3 font-bold text-slate-500 text-right">หัวเรื่อง (Subject):</div>
+                                            <div className="col-span-9 text-blue-600 underline cursor-pointer">{selectedBook.subject}</div>
+                                        </div>
+                                    )}
+                                    {selectedBook.marcData?.['440'] && (
+                                        <div className="grid grid-cols-12 gap-4">
+                                            <div className="col-span-3 font-bold text-slate-500 text-right">ชื่อชุด (Series):</div>
+                                            <div className="col-span-9 text-slate-800">{selectedBook.marcData['440']}</div>
+                                        </div>
+                                    )}
+                                    {selectedBook.marcData?.['700'] && (
+                                        <div className="grid grid-cols-12 gap-4">
+                                            <div className="col-span-3 font-bold text-slate-500 text-right">ผู้แต่งร่วม:</div>
+                                            <div className="col-span-9 text-slate-800">{selectedBook.marcData['700']}</div>
                                         </div>
                                     )}
                                 </div>
                             </div>
-                            <div className="grid grid-cols-12 gap-4 items-center">
-                                <label className="col-span-3 text-right text-sm font-bold text-slate-600">ผู้แต่งร่วม - บุคคล (700)</label>
-                                <input type="text" className="col-span-9 border rounded px-3 py-2 text-sm" value={tag700} onChange={e => setTag700(e.target.value)} />
-                            </div>
-                             <div className="grid grid-cols-12 gap-4 items-center">
-                                <label className="col-span-3 text-right text-sm font-bold text-slate-600">ผู้แต่งร่วม - นิติบุคคล (710)</label>
-                                <input type="text" className="col-span-9 border rounded px-3 py-2 text-sm" value={tag710} onChange={e => setTag710(e.target.value)} />
-                            </div>
-                            <div className="grid grid-cols-12 gap-4 items-start">
-                                <label className="col-span-3 text-right text-sm font-bold text-slate-600 pt-2">E-book / Multimedia (856)</label>
-                                <div className="col-span-9 space-y-2">
-                                    <div className="flex items-center gap-2">
-                                        <LinkIcon className="w-4 h-4 text-slate-400"/>
-                                        <input type="text" className="flex-1 border rounded px-3 py-2 text-sm" value={tag856} onChange={e => setTag856(e.target.value)} placeholder="URL หรือ ลิงก์" />
+                        </div>
+                    </div>
+                  )}
+              </div>
+          )}
+
+          {/* --- TAB 2: BIB RECORD --- */}
+          {activeTab === 'Bib' && (
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm animate-fadeIn h-full overflow-y-auto">
+                <div className="flex justify-between items-center mb-6 border-b pb-4">
+                    <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                        <Database className="w-6 h-6 text-accent"/>
+                        {isEditMode ? 'แก้ไขบรรณานุกรม (Edit Bibliographic Record)' : 'เพิ่มบรรณานุกรมใหม่ (New Bibliographic Record)'}
+                    </h2>
+                    <div className="flex gap-2">
+                        <button onClick={() => { populateForm(selectedBook || {} as Book, true); setActiveTab('Bib'); }} className="px-3 py-1.5 border border-slate-300 rounded text-sm hover:bg-slate-50 flex items-center gap-1"><RefreshCw className="w-4 h-4"/> รีเซ็ต</button>
+                        <button onClick={handleSaveBib} className="px-6 py-1.5 bg-green-600 text-white rounded text-sm font-bold hover:bg-green-700 shadow flex items-center gap-2"><Save className="w-4 h-4"/> บันทึกข้อมูล</button>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-12 gap-6">
+                    {/* Left Column - Main Form */}
+                    <div className="col-span-9 space-y-6">
+                        {/* 1. Leader & Control Fields */}
+                        <div className="bg-blue-50 p-4 rounded-lg border border-slate-200">
+                            <h3 className="font-bold text-slate-700 mb-3 text-sm uppercase">ส่วนข้อมูลควบคุม (Control Fields)</h3>
+                            <div className="grid grid-cols-12 gap-4">
+                                <div className="col-span-4">
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">ประเภทวัสดุ (Format)</label>
+                                    <select className="w-full border rounded p-2 text-sm" value={resourceType} onChange={e => setResourceType(e.target.value)}>
+                                        {resourceTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                                    </select>
+                                </div>
+                                <div className="col-span-4">
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">สถานที่จัดเก็บ (Location)</label>
+                                    <select className="w-full border rounded p-2 text-sm" value={location} onChange={e => setLocation(e.target.value)}>
+                                        {locations.map(l => <option key={l} value={l}>{l}</option>)}
+                                    </select>
+                                </div>
+                                <div className="col-span-4">
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">ISBN (020)</label>
+                                    <div className="flex gap-2">
+                                        <input type="text" className="flex-1 border rounded p-2 text-sm" placeholder="978-..." value={tag020} onChange={e => setTag020(e.target.value)} />
+                                        <button onClick={() => alert('Search ISBN from External DB...')} className="bg-white border p-2 rounded hover:bg-slate-100" title="ค้นหาปก/ข้อมูล"><Search className="w-4 h-4"/></button>
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                        <FileText className="w-4 h-4 text-slate-400"/>
-                                        <label className="flex-1 border border-dashed rounded px-3 py-2 text-sm cursor-pointer hover:bg-slate-50 flex justify-between items-center">
-                                             <span className="text-slate-500">{tag856File || 'อัปโหลดไฟล์ E-book'}</span>
-                                             <input type="file" className="hidden" accept=".pdf,.epub" onChange={handleEbookUpload} />
-                                             <span className="bg-slate-200 text-xs px-2 py-1 rounded">Browse</span>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-12 gap-4 mt-3">
+                                <div className="col-span-3">
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">เลขหมู่ Dewey (082 $a)</label>
+                                    <input type="text" className="w-full border rounded p-2 text-sm font-mono" placeholder="000" value={dewey} onChange={e => setDewey(e.target.value)} />
+                                </div>
+                                <div className="col-span-3">
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">เลขผู้แต่ง Cutter (082 $b)</label>
+                                    <div className="flex gap-1">
+                                        <input type="text" className="w-full border rounded p-2 text-sm font-mono" placeholder="ก111" value={cutter} onChange={e => setCutter(e.target.value)} />
+                                        <button onClick={generateAutoCallNumber} className="bg-slate-200 px-2 rounded hover:bg-slate-300 text-xs" title="Auto Generate"><RefreshCw className="w-3 h-3"/></button>
+                                    </div>
+                                </div>
+                                <div className="col-span-3">
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">ปีพิมพ์ (Year)</label>
+                                    <input type="text" className="w-full border rounded p-2 text-sm font-mono" placeholder="2567" value={pubYearCall} onChange={e => setPubYearCall(e.target.value)} />
+                                </div>
+                                <div className="col-span-3 bg-blue-50 p-2 rounded flex flex-col justify-center items-center">
+                                    <span className="text-[10px] text-blue-500 font-bold">Call Number Preview</span>
+                                    <span className="text-sm font-bold font-mono text-blue-800">{dewey} {cutter} {pubYearCall}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 2. Title & Author */}
+                        <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 shadow-sm">
+                            <h3 className="font-bold text-slate-700 mb-3 text-sm uppercase">ชื่อเรื่องและผู้แต่ง (Title & Author)</h3>
+                            <div className="space-y-3">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">ชื่อเรื่อง (245 $a) <span className="text-red-500">*</span></label>
+                                    <input type="text" className="w-full border rounded p-2 text-sm font-bold" placeholder="ระบุชื่อเรื่อง..." value={tag245a} onChange={e => setTag245a(e.target.value)} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="relative">
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">ผู้แต่ง - บุคคล (100 $a)</label>
+                                        <input type="text" className="w-full border rounded p-2 text-sm" placeholder="ชื่อ-นามสกุล..." value={tag100} onChange={e => handleAuthorChange(e.target.value)} onFocus={() => setShowAuthorSuggestions(!!tag100)} />
+                                        {showAuthorSuggestions && (
+                                            <div className="absolute z-10 w-full bg-white border shadow-lg max-h-40 overflow-y-auto mt-1 rounded">
+                                                {suggestedAuthors.map((item, idx) => (
+                                                    <div key={idx} className="p-2 hover:bg-blue-50 cursor-pointer text-sm flex justify-between" onClick={() => selectAuthor(item)}>
+                                                        <span>{item.name}</span>
+                                                        {item.cutter && <span className="text-xs text-slate-400 bg-slate-100 px-1 rounded">{item.cutter}</span>}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">ผู้แต่ง - นิติบุคคล (110 $a)</label>
+                                        <input type="text" className="w-full border rounded p-2 text-sm" placeholder="หน่วยงาน/องค์กร..." value={tag110} onChange={e => setTag110(e.target.value)} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">ส่วนแจ้งความรับผิดชอบ (245 $c)</label>
+                                    <input type="text" className="w-full border rounded p-2 text-sm" placeholder="เช่น เรื่องโดย..., ภาพโดย..." value={tag245c} onChange={e => setTag245c(e.target.value)} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">ชื่อเรื่องที่แตกต่าง (246)</label>
+                                        <input type="text" className="w-full border rounded p-2 text-sm" value={tag246} onChange={e => setTag246(e.target.value)} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">ครั้งที่พิมพ์ (250)</label>
+                                        <input type="text" className="w-full border rounded p-2 text-sm" placeholder="พิมพ์ครั้งที่..." value={tag250} onChange={e => setTag250(e.target.value)} />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 3. Imprint & Physical */}
+                        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                            <h3 className="font-bold text-slate-700 mb-3 text-sm uppercase">พิมพลักษณ์และลักษณะทางกายภาพ (Imprint & Physical)</h3>
+                            <div className="grid grid-cols-3 gap-4 mb-3">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">สถานที่พิมพ์ (260 $a)</label>
+                                    <input type="text" className="w-full border rounded p-2 text-sm" value={tag260a} onChange={e => setTag260a(e.target.value)} />
+                                </div>
+                                <div className="relative">
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">สำนักพิมพ์ (260 $b)</label>
+                                    <input type="text" className="w-full border rounded p-2 text-sm" value={tag260b} onChange={e => handlePublisherChange(e.target.value)} onFocus={() => setShowPublisherSuggestions(!!tag260b)} />
+                                    {showPublisherSuggestions && (
+                                        <div className="absolute z-10 w-full bg-white border shadow-lg max-h-40 overflow-y-auto mt-1 rounded">
+                                            {suggestedPublishers.map((pub, idx) => (
+                                                <div key={idx} className="p-2 hover:bg-blue-50 cursor-pointer text-sm flex justify-between" onClick={() => selectPublisher(pub)}>
+                                                    <span>{pub.name}</span>
+                                                    {pub.place && <span className="text-xs text-slate-400 bg-slate-100 px-1 rounded">{pub.place}</span>}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">ปีที่พิมพ์ (260 $c)</label>
+                                    <input type="text" className="w-full border rounded p-2 text-sm" value={tag260c} onChange={e => setTag260c(e.target.value)} />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">จำนวนหน้า (300 $a)</label>
+                                    <input type="text" className="w-full border rounded p-2 text-sm" placeholder="300 หน้า" value={tag300a} onChange={e => setTag300a(e.target.value)} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">ภาพประกอบ (300 $b)</label>
+                                    <input type="text" className="w-full border rounded p-2 text-sm" placeholder="ภาพประกอบ" value={tag300b} onChange={e => setTag300b(e.target.value)} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">ขนาด (300 $c)</label>
+                                    <input type="text" className="w-full border rounded p-2 text-sm" placeholder="21 ซม." />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 4. Subject & Notes */}
+                        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                            <h3 className="font-bold text-slate-700 mb-3 text-sm uppercase">หัวเรื่องและหมายเหตุ (Subject & Notes)</h3>
+                            <div className="grid grid-cols-2 gap-4 mb-3">
+                                <div className="relative">
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">หัวเรื่อง (650)</label>
+                                    <input type="text" className="w-full border rounded p-2 text-sm" placeholder="ระบุหัวเรื่อง..." value={tag650} onChange={e => handleSubjectChange(e.target.value)} onFocus={() => setShowSubjectSuggestions(!!tag650)}/>
+                                    {showSubjectSuggestions && (
+                                        <div className="absolute z-10 w-full bg-white border shadow-lg max-h-40 overflow-y-auto mt-1 rounded">
+                                            {suggestedSubjects.map((s, idx) => (
+                                                <div key={idx} className="p-2 hover:bg-blue-50 cursor-pointer text-sm" onClick={() => selectSubject(s)}>
+                                                    {s.heading} <span className="text-xs text-slate-400">({s.dewey})</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="relative">
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">ชื่อชุด (440)</label>
+                                    <input type="text" className="w-full border rounded p-2 text-sm" value={tag440} onChange={e => handleSeriesChange(e.target.value)} onFocus={() => setShowSeriesSuggestions(!!tag440)}/>
+                                    {showSeriesSuggestions && (
+                                        <div className="absolute z-10 w-full bg-white border shadow-lg max-h-40 overflow-y-auto mt-1 rounded">
+                                            {suggestedSeries.map((s, idx) => (
+                                                <div key={idx} className="p-2 hover:bg-blue-50 cursor-pointer text-sm" onClick={() => selectSeries(s)}>
+                                                    {s}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="mb-3">
+                                <label className="block text-xs font-bold text-slate-500 mb-1">สาระสังเขป (520)</label>
+                                <textarea className="w-full border rounded p-2 text-sm h-20" value={tag520} onChange={e => setTag520(e.target.value)}></textarea>
+                            </div>
+                            <div className="grid grid-cols-3 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">ราคา (541)</label>
+                                    <input type="text" className="w-full border rounded p-2 text-sm" placeholder="บาท" value={tag541} onChange={e => setTag541(e.target.value)} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">ผู้แต่งร่วม (700)</label>
+                                    <input type="text" className="w-full border rounded p-2 text-sm" value={tag700} onChange={e => setTag700(e.target.value)} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">แหล่งที่มา (990)</label>
+                                    <input type="text" className="w-full border rounded p-2 text-sm" value={tag990} onChange={e => setTag990(e.target.value)} />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 5. Custom Fields */}
+                        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                            <div className="flex justify-between items-center mb-3">
+                                <h3 className="font-bold text-slate-700 text-sm uppercase">ข้อมูลเพิ่มเติม (Custom MARC Fields)</h3>
+                                <button onClick={() => setShowAddMarcFieldModal(true)} className="text-xs text-blue-600 hover:underline flex items-center gap-1"><PlusCircle className="w-3 h-3"/> เพิ่มฟิลด์</button>
+                            </div>
+                            {extraMarc.map((field, idx) => (
+                                <div key={idx} className="flex gap-2 mb-2 items-center">
+                                    <span className="w-10 text-xs font-mono text-slate-500 bg-slate-100 p-1 text-center rounded">{field.tag}</span>
+                                    <span className="w-8 text-xs font-mono text-slate-400 text-center">{field.sub}</span>
+                                    {field.inputType === 'multi' ? (
+                                        <textarea className="flex-1 border rounded p-2 text-sm" value={field.val} onChange={e => {const newExtra = [...extraMarc]; newExtra[idx].val = e.target.value; setExtraMarc(newExtra);}} placeholder={field.desc}></textarea>
+                                    ) : (
+                                        <input type="text" className="flex-1 border rounded p-2 text-sm" value={field.val} onChange={e => {const newExtra = [...extraMarc]; newExtra[idx].val = e.target.value; setExtraMarc(newExtra);}} placeholder={field.desc} />
+                                    )}
+                                    <button onClick={() => handleRemoveExtraMarc(idx)} className="text-slate-400 hover:text-red-500"><X className="w-4 h-4"/></button>
+                                </div>
+                            ))}
+                            {extraMarc.length === 0 && <p className="text-xs text-slate-400 italic">ไม่มีฟิลด์เพิ่มเติม</p>}
+                        </div>
+                    </div>
+
+                    {/* Right Column - Media & Files */}
+                    <div className="col-span-3 space-y-6">
+                        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                            <h3 className="font-bold text-slate-700 mb-3 text-sm uppercase">รูปภาพปก (Cover Image)</h3>
+                            <div className="border-2 border-dashed border-slate-300 rounded-lg h-48 flex flex-col items-center justify-center bg-slate-50 mb-3 overflow-hidden relative group">
+                                {tag902 ? (
+                                    <>
+                                        <img src={tag902} className="w-full h-full object-contain" />
+                                        <button onClick={() => setTag902('')} className="absolute top-2 right-2 bg-white/80 p-1 rounded-full text-red-500 hover:bg-white"><Trash2 className="w-4 h-4"/></button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <ImageIcon className="w-8 h-8 text-slate-300 mb-2" />
+                                        <span className="text-xs text-slate-400">ลากไฟล์มาวาง หรือ คลิกเพื่ออัปโหลด</span>
+                                    </>
+                                )}
+                                <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" accept="image/*" onChange={handleImageUpload} />
+                            </div>
+                            <input type="text" className="w-full border rounded p-2 text-xs mb-2" placeholder="หรือระบุ URL ของรูปภาพ..." value={tag902} onChange={e => setTag902(e.target.value)} />
+                        </div>
+
+                        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                            <h3 className="font-bold text-slate-700 mb-3 text-sm uppercase">ไฟล์ดิจิทัล (E-book/PDF)</h3>
+                            <div className="border border-slate-200 rounded p-3 bg-slate-50 mb-2">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <LinkIcon className="w-4 h-4 text-slate-400" />
+                                    <input type="text" className="flex-1 bg-transparent text-sm outline-none" placeholder="ลิงก์ภายนอก (External URL)" value={tag856} onChange={e => setTag856(e.target.value)} />
+                                </div>
+                            </div>
+                            <div className="relative">
+                                <button className="w-full bg-blue-50 text-blue-600 border border-blue-200 py-2 rounded text-sm hover:bg-blue-100 flex items-center justify-center gap-2">
+                                    <Upload className="w-4 h-4" /> อัปโหลดไฟล์ PDF
+                                </button>
+                                <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" accept=".pdf,.epub" onChange={handleEbookUpload} />
+                            </div>
+                            {tag856File && <p className="text-xs text-green-600 mt-2 flex items-center gap-1"><FileText className="w-3 h-3"/> {tag856File}</p>}
+                        </div>
+
+                        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                            <h3 className="font-bold text-slate-700 mb-3 text-sm uppercase">การตั้งค่าอื่นๆ</h3>
+                            <div className="space-y-3">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">จำกัดการจอง (Max Reservations)</label>
+                                    <input type="number" className="w-full border rounded p-2 text-sm" value={maxReservations} onChange={e => setMaxReservations(Number(e.target.value))} />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <input type="checkbox" id="opac-visible" defaultChecked className="rounded text-blue-600" />
+                                    <label htmlFor="opac-visible" className="text-sm text-slate-700">แสดงในหน้า OPAC</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+          )}
+
+          {activeTab === 'Item' && (
+             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-full flex flex-col animate-fadeIn">
+                {!selectedBook ? (
+                    <div className="flex flex-col items-center justify-center h-full text-slate-400 opacity-70">
+                        <Database className="w-16 h-16 mb-4 stroke-1"/>
+                        <p className="text-lg font-medium">กรุณาบันทึกข้อมูลบรรณานุกรมก่อนจัดการตัวเล่ม</p>
+                        <p className="text-sm">หรือเลือกรายการจากหน้าสืบค้น (Search)</p>
+                        <button onClick={() => setActiveTab('Search')} className="mt-4 px-4 py-2 bg-blue-100 text-blue-600 rounded hover:bg-blue-200">กลับไปค้นหา</button>
+                    </div>
+                ) : (
+                    <>
+                        <div className="border-b pb-4 mb-4 flex justify-between items-start">
+                            <div>
+                                <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                                    <Box className="w-6 h-6 text-accent"/> จัดการข้อมูลตัวเล่ม (Item Holdings)
+                                </h2>
+                                <p className="text-slate-500 text-sm mt-1 ml-8">สำหรับ: <span className="font-bold text-slate-700">{selectedBook.title}</span> ({selectedBook.isbn})</p>
+                            </div>
+                            <div className="bg-blue-50 px-3 py-1 rounded text-blue-800 text-sm font-medium">
+                                จำนวนทั้งหมด: {selectedBook.items?.length || 0} เล่ม
+                            </div>
+                        </div>
+
+                        {/* Add Item Form */}
+                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6">
+                            <h3 className="font-bold text-sm text-slate-700 mb-3 flex items-center gap-2"><PlusCircle className="w-4 h-4"/> เพิ่มตัวเล่มใหม่</h3>
+                            <div className="flex flex-col md:flex-row gap-6 items-end">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-2">รูปแบบบาร์โค้ด</label>
+                                    <div className="flex gap-4">
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                            <input type="radio" name="holdingsMode" checked={holdingsMode === 'Auto'} onChange={() => setHoldingsMode('Auto')} className="text-blue-600 focus:ring-blue-500" />
+                                            <span className="text-sm">รันอัตโนมัติ (Auto)</span>
+                                        </label>
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                            <input type="radio" name="holdingsMode" checked={holdingsMode === 'Manual'} onChange={() => setHoldingsMode('Manual')} className="text-blue-600 focus:ring-blue-500" />
+                                            <span className="text-sm">ระบุเอง (Manual)</span>
                                         </label>
                                     </div>
                                 </div>
-                            </div>
-                             <div className="grid grid-cols-12 gap-4 items-center">
-                                <label className="col-span-3 text-right text-sm font-bold text-slate-600">ภาพปก (902)</label>
-                                <div className="col-span-9 flex items-center gap-4">
-                                     <div className="w-16 h-20 bg-slate-100 border rounded flex items-center justify-center overflow-hidden">
-                                         {tag902 ? <img src={tag902} className="w-full h-full object-cover" /> : <ImageIcon className="w-6 h-6 text-slate-300"/>}
-                                     </div>
-                                     <label className="cursor-pointer px-4 py-2 bg-white border rounded hover:bg-slate-50 text-sm flex items-center gap-2">
-                                         <Upload className="w-4 h-4" /> อัปโหลดรูปภาพ
-                                         <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
-                                     </label>
-                                     <span className="text-xs text-slate-400">ขนาดความสูงไม่เกิน 640px</span>
-                                </div>
-                            </div>
-                             <div className="grid grid-cols-12 gap-4 items-center">
-                                <label className="col-span-3 text-right text-sm font-bold text-slate-600">แหล่งที่ได้รับ (990)</label>
-                                <input type="text" className="col-span-9 border rounded px-3 py-2 text-sm" value={tag990} onChange={e => setTag990(e.target.value)} />
-                            </div>
-                            
-                            {/* Dynamically Added Fields */}
-                            {extraMarc.map((field, idx) => (
-                                <div key={idx} className="grid grid-cols-12 gap-4 items-start animate-fadeIn">
-                                    <label className="col-span-3 text-right text-sm font-bold text-blue-600 flex flex-col items-end">
-                                        <span>{field.desc} ({field.tag})</span>
-                                        <span className="text-xs text-slate-400 font-normal">Subfield: {field.sub}</span>
-                                    </label>
-                                    <div className="col-span-8">
-                                        {field.inputType === 'multi' ? (
-                                            <textarea className="w-full border rounded px-3 py-2 text-sm" value={field.val} onChange={(e) => {
-                                                const newExtra = [...extraMarc];
-                                                newExtra[idx].val = e.target.value;
-                                                setExtraMarc(newExtra);
-                                            }} rows={3} />
-                                        ) : (
-                                            <input type="text" className="w-full border rounded px-3 py-2 text-sm" value={field.val} onChange={(e) => {
-                                                const newExtra = [...extraMarc];
-                                                newExtra[idx].val = e.target.value;
-                                                setExtraMarc(newExtra);
-                                            }} />
-                                        )}
+                                
+                                {holdingsMode === 'Auto' ? (
+                                    <div className="w-32">
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">จำนวน (เล่ม)</label>
+                                        <input type="number" min="1" max="100" className="w-full border rounded p-2 text-sm" value={autoCopyCount} onChange={e => setAutoCopyCount(Number(e.target.value))} />
                                     </div>
-                                    <div className="col-span-1 flex items-center h-full">
-                                        <button onClick={() => handleRemoveExtraMarc(idx)} className="text-red-500 hover:bg-red-50 p-1 rounded"><X className="w-4 h-4" /></button>
+                                ) : (
+                                    <div className="flex-1">
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">รหัสบาร์โค้ด</label>
+                                        <input type="text" className="w-full border rounded p-2 text-sm font-mono" placeholder="Scan or type barcode..." value={manualBarcode} onChange={e => setManualBarcode(e.target.value)} />
                                     </div>
-                                </div>
-                            ))}
+                                )}
 
-                             <div className="grid grid-cols-12 gap-4 items-center">
-                                <label className="col-span-3 text-right text-sm font-bold text-slate-600">เพิ่มเติม</label>
-                                <button onClick={() => setShowAddMarcFieldModal(true)} className="col-span-9 w-fit text-sm text-blue-600 hover:underline flex items-center gap-1">
-                                    <PlusCircle className="w-4 h-4" /> เพิ่มฟิลด์ MARC
+                                <div className="flex-1">
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">สถานที่จัดเก็บ</label>
+                                    <select className="w-full border rounded p-2 text-sm" value={location} onChange={e => setLocation(e.target.value)}>
+                                        {locations.map(l => <option key={l} value={l}>{l}</option>)}
+                                    </select>
+                                </div>
+
+                                <button onClick={handleAddHoldings} className="bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700 shadow-sm h-[38px]">
+                                    เพิ่มรายการ
                                 </button>
                             </div>
                         </div>
-                    </section>
-                </div>
-            </div>
-            )}
-            
-            {/* --- TAB 3: HOLDINGS --- */}
-            {activeTab === 'Item' && selectedBook && (
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm mt-4 animate-fadeIn">
-                     <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2 border-b pb-4">
-                        <Box className="w-5 h-5" /> ข้อมูลตัวเล่ม (Holdings): {selectedBook.title}
-                    </h3>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-                        <div className="space-y-4">
-                            <label className="font-bold text-slate-700 block mb-2">รูปแบบการกำหนดเลขทะเบียน (Barcode)</label>
-                            <div className="flex gap-4">
-                                <label className={`flex-1 p-4 border rounded-lg cursor-pointer transition-all ${holdingsMode === 'Auto' ? 'border-accent bg-blue-50 ring-1 ring-accent' : 'hover:bg-slate-50'}`}>
-                                    <div className="flex items-center gap-3">
-                                        <input type="radio" checked={holdingsMode === 'Auto'} onChange={() => setHoldingsMode('Auto')} className="w-4 h-4 text-accent" />
-                                        <div>
-                                            <span className="font-bold block text-slate-800">อัตโนมัติ (Auto)</span>
-                                            <span className="text-xs text-slate-500">ระบบสร้างรหัส 7 หลักขึ้นไป</span>
-                                        </div>
-                                    </div>
-                                </label>
-                                <label className={`flex-1 p-4 border rounded-lg cursor-pointer transition-all ${holdingsMode === 'Manual' ? 'border-accent bg-blue-50 ring-1 ring-accent' : 'hover:bg-slate-50'}`}>
-                                    <div className="flex items-center gap-3">
-                                        <input type="radio" checked={holdingsMode === 'Manual'} onChange={() => setHoldingsMode('Manual')} className="w-4 h-4 text-accent" />
-                                        <div>
-                                            <span className="font-bold block text-slate-800">กำหนดเอง (Manual)</span>
-                                            <span className="text-xs text-slate-500">ป้อนรหัสด้วยตนเอง</span>
-                                        </div>
-                                    </div>
-                                </label>
-                            </div>
-
-                            {holdingsMode === 'Auto' ? (
-                                <div className="bg-slate-50 p-4 rounded border animate-fadeIn">
-                                    <label className="block text-sm font-bold mb-2">จำนวนเล่มที่ต้องการเพิ่ม (1-10)</label>
-                                    <input type="number" min="1" max="10" value={autoCopyCount} onChange={e => setAutoCopyCount(parseInt(e.target.value))} className="w-full border rounded px-3 py-2" />
-                                    <p className="text-xs text-slate-500 mt-2">รหัสจะเริ่มจาก {(() => {
-                                        // Preview next ID from global max
-                                        const maxGlobal = getGlobalMaxBarcode();
-                                        return (maxGlobal + 1).toString().padStart(7, '0');
-                                    })()}</p>
-                                </div>
-                            ) : (
-                                <div className="bg-slate-50 p-4 rounded border animate-fadeIn">
-                                    <label className="block text-sm font-bold mb-2">เลขทะเบียน (Barcode)</label>
-                                    <input type="text" value={manualBarcode} onChange={e => setManualBarcode(e.target.value)} className="w-full border rounded px-3 py-2" placeholder="ระบุเลขทะเบียน..." />
-                                </div>
-                            )}
-
-                            <div>
-                                <label className="block text-sm font-bold mb-2 text-slate-700">จำนวนจองสูงสุด (Max Reservations)</label>
-                                <input type="number" min="0" value={maxReservations} onChange={e => setMaxReservations(parseInt(e.target.value))} className="w-full border rounded px-3 py-2" />
-                                <p className="text-xs text-slate-500 mt-1">จำกัดจำนวนคนที่สามารถจองต่อคิวหนังสือเล่มนี้ได้</p>
-                            </div>
-
-                            <button onClick={handleAddHoldings} className="w-full py-3 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 flex items-center justify-center gap-2">
-                                <Plus className="w-5 h-5" /> บันทึกรายการตัวเล่ม
-                            </button>
-                        </div>
-
-                        {/* Current Items List */}
-                        <div className="border rounded-lg overflow-hidden flex flex-col">
-                            <div className="bg-slate-100 p-3 font-bold text-slate-700 border-b">รายการตัวเล่มที่มีอยู่ ({selectedBook.items?.length || 0})</div>
-                            <div className="flex-1 overflow-y-auto max-h-80 bg-white">
-                                <table className="w-full text-sm text-left">
-                                    <thead className="bg-slate-50 text-slate-500"><tr><th className="px-4 py-2">Barcode</th><th className="px-4 py-2">สถานะ</th><th className="px-4 py-2">สถานที่</th></tr></thead>
-                                    <tbody className="divide-y">
-                                        {selectedBook.items?.map((item, idx) => (
-                                            <tr key={idx}>
-                                                <td className="px-4 py-2 font-mono">{item.barcode}</td>
-                                                <td className="px-4 py-2"><span className={`px-2 py-0.5 rounded-full text-xs ${item.status === 'Available' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{translateStatus(item.status)}</span></td>
-                                                <td className="px-4 py-2 text-slate-500">{item.location}</td>
-                                            </tr>
-                                        ))}
-                                        {(!selectedBook.items || selectedBook.items.length === 0) && <tr><td colSpan={3} className="p-4 text-center text-slate-400">ยังไม่มีตัวเล่ม</td></tr>}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {!selectedBook && activeTab === 'Item' && (
-                <div className="flex items-center justify-center h-full text-slate-400 flex-col">
-                    <Box className="w-12 h-12 mb-2 opacity-50" />
-                    <p>กรุณาเลือกหนังสือจากหน้าสืบค้น หรือสร้างบรรณานุกรมใหม่ก่อน</p>
-                </div>
-            )}
-
-            {/* --- TAB 4: UNION --- */}
-            {activeTab === 'Union' && (
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm mt-4 animate-fadeIn">
-                    <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                        <Globe className="w-4 h-4" /> สืบค้นฐานข้อมูลสหบรรณานุกรม (Z39.50 Union Catalog)
-                    </h3>
-                    <div className="flex gap-2 mb-6">
-                        <input type="text" className="flex-1 border border-slate-300 rounded px-4 py-2 text-sm" placeholder="ใส่ ISBN หรือ ชื่อเรื่อง เพื่อค้นหาจากห้องสมุดเครือข่าย..." />
-                        <button className="bg-accent text-white px-6 py-2 rounded text-sm font-medium">ค้นหา</button>
-                    </div>
-                    <div className="text-center p-10 text-slate-400 border border-dashed rounded-lg">
-                        ระบบจำลองการเชื่อมต่อ Z39.50
-                    </div>
-                </div>
-            )}
-      </div>
-
-      {/* Add MARC Field Modal */}
-      {showAddMarcFieldModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm p-4">
-              <div className="bg-white rounded-xl shadow-lg w-full max-w-md p-6 animate-fadeIn">
-                  <div className="flex justify-between items-center mb-4">
-                      <h3 className="font-bold text-lg flex items-center gap-2"><PlusCircle className="w-5 h-5 text-blue-600"/> เพิ่มฟิลด์ MARC</h3>
-                      <button onClick={() => setShowAddMarcFieldModal(false)}><X className="w-5 h-5 text-slate-400 hover:text-red-500"/></button>
-                  </div>
-                  <div className="space-y-4">
-                      <div>
-                          <label className="block text-sm font-bold text-slate-700 mb-1">ประเภททรัพยากร</label>
-                          <select 
-                              className="w-full border rounded px-3 py-2 text-sm bg-white"
-                              value={newFieldData.resourceType}
-                              onChange={e => setNewFieldData({...newFieldData, resourceType: e.target.value})}
-                          >
-                              {resourceTypes.map(type => (
-                                  <option key={type} value={type}>{type}</option>
-                              ))}
-                          </select>
-                      </div>
-                      <div>
-                          <label className="block text-sm font-bold text-slate-700 mb-1">แท็ก (Tag)</label>
-                          <select className="w-full border rounded px-3 py-2 text-sm font-mono" value={newFieldData.tag} onChange={handleTagSelect}>
-                              <option value="">-- เลือก Tag --</option>
-                              {marcTags.map(t => (
-                                  <option key={t.tag} value={t.tag}>{t.tag} - {t.desc}</option>
-                              ))}
-                          </select>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                           <div>
-                              <label className="block text-sm font-bold text-slate-700 mb-1">รหัสฟิลด์ย่อย</label>
-                              <input type="text" className="w-full border rounded px-3 py-2 text-sm font-mono bg-slate-50" value={newFieldData.subfield} readOnly />
-                          </div>
-                          <div>
-                              <label className="block text-sm font-bold text-slate-700 mb-1">รายละเอียด</label>
-                              <input type="text" className="w-full border rounded px-3 py-2 text-sm bg-slate-50" value={newFieldData.desc} readOnly />
-                          </div>
-                      </div>
-                       <div className="flex items-center gap-2 mt-2">
-                          <input type="checkbox" checked={newFieldData.mandatory} onChange={e => setNewFieldData({...newFieldData, mandatory: e.target.checked})} className="rounded text-blue-600" />
-                          <label className="text-sm text-slate-700">ตั้งเป็นฟิลด์บังคับ</label>
-                      </div>
-                      <div>
-                          <label className="block text-sm font-bold text-slate-700 mb-1">รูปแบบช่องกรอกข้อมูล</label>
-                          <div className="flex gap-4">
-                              <label className="flex items-center gap-2 cursor-pointer">
-                                  <input type="radio" name="inputType" value="single" checked={newFieldData.inputType === 'single'} onChange={() => setNewFieldData({...newFieldData, inputType: 'single'})} />
-                                  <span className="text-sm">บรรทัดเดียว</span>
-                              </label>
-                               <label className="flex items-center gap-2 cursor-pointer">
-                                  <input type="radio" name="inputType" value="multi" checked={newFieldData.inputType === 'multi'} onChange={() => setNewFieldData({...newFieldData, inputType: 'multi'})} />
-                                  <span className="text-sm">หลายบรรทัด</span>
-                              </label>
-                          </div>
-                      </div>
-                      <button onClick={saveNewMarcField} disabled={!newFieldData.tag} className="w-full bg-blue-600 text-white py-2 rounded font-bold hover:bg-blue-700 mt-4 disabled:bg-slate-300">เพิ่มฟิลด์</button>
-                  </div>
-              </div>
-          </div>
-      )}
-
-      {/* MARC Modal (View/Edit Raw) */}
-      {showMarcModal && selectedBook && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm p-4">
-              <div className="bg-white rounded-xl shadow-lg w-full max-w-2xl p-6 animate-fadeIn h-3/4 flex flex-col">
-                  <div className="flex justify-between items-center mb-4">
-                      <h3 className="font-bold text-lg flex items-center gap-2"><Code className="w-5 h-5"/> แก้ไขระเบียน MARC (Edit MARC)</h3>
-                      <button onClick={() => setShowMarcModal(false)}><X className="w-5 h-5"/></button>
-                  </div>
-                  <div className="flex-1 bg-slate-900 text-green-400 font-mono p-4 rounded-lg overflow-auto text-sm">
-                      <p>LDR  00000nam a2200000 a 4500</p>
-                      <p>001  {selectedBook.id}</p>
-                      <p>008  250220s{selectedBook.pubYear || 'xxxx'}    th a     b    001 0 tha d</p>
-                      <p>020  $a {selectedBook.isbn}</p>
-                      <p>050  00 $a {selectedBook.callNumber}</p>
-                      <p>100  1  $a {selectedBook.author}</p>
-                      <p>245  10 $a {selectedBook.title}</p>
-                      <p>260     $b {selectedBook.publisher} $c {selectedBook.pubYear}</p>
-                      <p>300     $a {selectedBook.pages}</p>
-                      <p>650   0 $a {selectedBook.subject}</p>
-                      <p>990     $a {selectedBook.items?.length || 0} copies</p>
-                  </div>
-                  <div className="mt-4 flex justify-end"><button onClick={() => setShowMarcModal(false)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded text-slate-700">ปิด</button></div>
-              </div>
-          </div>
-      )}
-      
-      {/* History Modal */}
-      {showHistoryModal && selectedBook && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm p-4">
-              <div className="bg-white rounded-xl shadow-lg w-full max-w-2xl p-6 animate-fadeIn flex flex-col max-h-[80vh]">
-                  <div className="flex justify-between items-center mb-4">
-                      <h3 className="font-bold text-lg flex items-center gap-2"><History className="w-5 h-5"/> ประวัติการยืม-คืน: {selectedBook.title}</h3>
-                      <button onClick={() => setShowHistoryModal(false)}><X className="w-5 h-5"/></button>
-                  </div>
-                  <div className="flex-1 overflow-auto">
-                      <table className="w-full text-sm text-left">
-                           <thead className="bg-slate-100 text-slate-600">
-                               <tr>
-                                   <th className="px-4 py-2">วันที่ยืม</th>
-                                   <th className="px-4 py-2">วันที่คืน</th>
-                                   <th className="px-4 py-2">ผู้ยืม</th>
-                                   <th className="px-4 py-2">สถานะ</th>
-                               </tr>
-                           </thead>
-                           <tbody className="divide-y">
-                               {getBookLoanHistory(selectedBook).map((tx, i) => (
-                                   <tr key={i} className="hover:bg-slate-50">
-                                       <td className="px-4 py-2">{tx.checkoutDate}</td>
-                                       <td className="px-4 py-2">{tx.returnDate || '-'}</td>
-                                       <td className="px-4 py-2">{tx.patronName}</td>
-                                       <td className="px-4 py-2">
-                                           <span className={`px-2 py-1 rounded-full text-xs ${tx.status === 'Returned' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
-                                               {translateStatus(tx.status)}
-                                           </span>
-                                       </td>
-                                   </tr>
-                               ))}
-                               {getBookLoanHistory(selectedBook).length === 0 && <tr><td colSpan={4} className="p-4 text-center text-slate-400">ไม่พบประวัติการยืม</td></tr>}
-                           </tbody>
-                      </table>
-                  </div>
-                  <div className="mt-4 flex justify-end"><button onClick={() => setShowHistoryModal(false)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded text-slate-700">ปิด</button></div>
-              </div>
-          </div>
-      )}
-
-      {/* Holds History Modal (Enhanced to show FULL History) */}
-      {showHoldsModal && selectedBook && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm p-4">
-              <div className="bg-white rounded-xl shadow-lg w-full max-w-3xl p-6 animate-fadeIn flex flex-col max-h-[80vh]">
-                  <div className="flex justify-between items-center mb-4">
-                      <h3 className="font-bold text-lg flex items-center gap-2"><Bookmark className="w-5 h-5"/> ประวัติรายการจองย้อนหลังทั้งหมด: {selectedBook.title}</h3>
-                      <button onClick={() => setShowHoldsModal(false)}><X className="w-5 h-5"/></button>
-                  </div>
-                  <div className="flex-1 overflow-auto">
-                       {getAllReservationHistory(selectedBook).length > 0 ? (
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-orange-100 text-orange-800 sticky top-0 z-10">
+                        {/* Item List Table */}
+                        <div className="flex-1 overflow-auto border rounded-lg shadow-sm">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-slate-100 text-slate-600 font-bold sticky top-0 z-10">
                                     <tr>
-                                        <th className="px-4 py-2">ชื่อผู้จอง</th>
-                                        <th className="px-4 py-2">วันที่จอง</th>
-                                        <th className="px-4 py-2">สถานะการจอง</th>
-                                        <th className="px-4 py-2">วันที่ดำเนินการ (Action Date)</th>
+                                        <th className="px-4 py-3 w-16 text-center">#</th>
+                                        <th className="px-4 py-3">รหัสบาร์โค้ด (Barcode)</th>
+                                        <th className="px-4 py-3">สถานะ (Status)</th>
+                                        <th className="px-4 py-3">สถานที่ (Location)</th>
+                                        <th className="px-4 py-3 w-32 text-right">จัดการ</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y">
-                                    {getAllReservationHistory(selectedBook).map((h, i) => (
-                                        <tr key={i} className="hover:bg-orange-50">
-                                            <td className="px-4 py-2 font-medium text-slate-700">{h.patronName}</td>
-                                            <td className="px-4 py-2 text-slate-500">{h.date}</td>
-                                            <td className="px-4 py-2">
-                                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                                    h.status.includes('Active') ? 'bg-blue-100 text-blue-700' :
-                                                    h.status.includes('รับหนังสือแล้ว') ? 'bg-green-100 text-green-700' :
-                                                    h.status.includes('ยกเลิก') ? 'bg-red-100 text-red-700' :
-                                                    'bg-slate-100 text-slate-600'
-                                                }`}>
-                                                    {h.status}
-                                                </span>
-                                            </td>
-                                            <td className="px-4 py-2 text-slate-500">{h.actionDate}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        ) : (
-                            <div className="p-10 text-center text-slate-400">
-                                <Bookmark className="w-12 h-12 mx-auto mb-2 opacity-20" />
-                                <p>ไม่มีประวัติการจองสำหรับหนังสือเล่มนี้</p>
-                            </div>
-                        )}
-                  </div>
-                  <div className="mt-4 flex justify-end"><button onClick={() => setShowHoldsModal(false)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded text-slate-700">ปิด</button></div>
-              </div>
-          </div>
-      )}
-    </div>
-  );
-};
-
-export default Cataloging;
+                                <tbody className="divide-y divide-slate-100">
+                                    {(!selectedBook.items || selectedBook.items.length === 0) ? (
+                                        <tr><td colSpan={5} className="p-8 text-center text-slate-400">ยังไม่มีข้อมูลตัวเล่ม</td></tr>
+                                    ) : (
+                                        selectedBook.items.map((item, idx) => (
+                                            <tr key={idx} className="hover:bg-slate-50">
+                                                <td className="px-4 py-3 text-center text-slate-400">{idx + 1}</td>
+                                                <td className="px-4 py-3">
+                                                    {editingItemIndex === idx ? (
+                                                        <input 
+                                                            type="text" 
+                                                            autoFocus
+                                                            className="border rounded px-2 py-1 text-sm font-mono w-full bg-white shadow-inner"
+                                                            value={tempEditBarcode}
+                                                            onChange={e => setTempEditBarcode(e.target.value)}
+                                                        />
+                                                    ) : (
+                                                        <span className="font-mono font-medium text-slate-700">{item.barcode}</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    {editingItemIndex === idx ? (
+                                                        <div className="space-y-2">
+                                                            <select
+                                                                className="border rounded px-2 py-1 text-sm w-full bg-white shadow-inner"
+                                                                value={tempEditStatus}
+                                                                onChange={e => setTempEditStatus(e.target.value)}
+                                                            >
+                                                                <option value="Available">อยู่บนชั้น</option>
+                                                                <option value="Checked Out">ถูกยืมออก</option>
+                                                                <option value="Shelving Cart">อยู่บนรถเข็น (รอขึ้นชั้น)</option>
+                                                                <option value="Lost">สูญหาย</option>
+                                                                <option value="Missing">สูญหายจากชั้นวางหนังสือ</option>
+                                                                <option value="Repair">ชำรุด/รอซ่อม</option>
+                                                                <option value="Processing">รอติด QR code</option>
+                                                            </select>
+                                                            {tempEditStatus === 'Lost' && (
+                                                                <input 
+                                                                    type="text" 
+                                                                    placeholder="ระบุชื่อผู้ทำหาย/สาเหตุ..." 
+                                                                    className="border rounded px-2 py-1 text-xs w-full bg-red-50"
+                                                                    value={tempEditNote}
+                                                                    onChange={e => setTempEditNote(e.target.value)}
+                                                                />
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <div>
+                                                            <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(item.status)}`}>
+                                                                {getStatusLabel(item.status)}
+                                                            </span>
+                                                            {item.status === 'Lost' && item.note && (
+                                                                <div className="text-xs text-red-500 mt-1">({item.note})</div>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-3 text-slate-600">{item.location}</td>
+                                                <td className="px-4 py-3 text-right">
+                                                    {editingItemIndex === idx ? (
+                                                        <div className="flex justify-end gap-2">
+                                                            <button onClick={() => handleSaveEditItem(idx)} className="p-1 text-green-600 hover:bg-green-50 rounded"><Check className="

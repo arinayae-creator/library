@@ -147,36 +147,63 @@ export const LibraryProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   ]);
 
-  // Session State
-  const [circulationSession, setCirculationSession] = useState<CirculationSession>({
-    mode: 'Checkout',
-    activeTab: 'Service',
-    subTab: 'List',
-    currentPatronId: null,
-    scannedItems: [],
-    itemIdInput: '',
-    patronIdInput: '',
-    rightPanelTab: 'Active',
-    isPatronFormOpen: false,
-    patronFormData: {},
-    isPatronEditMode: false
+  // Session State - Initialize from LocalStorage if available
+  const [circulationSession, setCirculationSession] = useState<CirculationSession>(() => {
+      const saved = localStorage.getItem('circulationSession');
+      if (saved) {
+          try {
+              const parsed = JSON.parse(saved);
+              // Migration for old structure if needed
+              if (!parsed.checkoutScannedItems) parsed.checkoutScannedItems = parsed.scannedItems || [];
+              if (!parsed.checkinScannedItems) parsed.checkinScannedItems = [];
+              return parsed;
+          } catch(e) {
+              console.error('Failed to parse saved session', e);
+          }
+      }
+      return {
+        mode: 'Checkout',
+        activeTab: 'Service',
+        subTab: 'List',
+        currentPatronId: null,
+        checkoutScannedItems: [],
+        checkinScannedItems: [],
+        itemIdInput: '',
+        patronIdInput: '',
+        rightPanelTab: 'Active',
+        isPatronFormOpen: false,
+        patronFormData: {},
+        isPatronEditMode: false
+      };
   });
 
-  const [catalogingSession, setCatalogingSession] = useState<CatalogingSession>({
-    activeTab: 'Search',
-    viewMode: 'List',
-    detailTab: 'Edit',
-    searchQuery: '',
-    advSearch: { title: '', author: '', isbn: '', callNo: '' },
-    searchBarcode: '',
-    searchType: 'Basic',
-    searchResultsIds: [],
-    selectedBookId: null,
-    bibFormData: {},
-    isEditMode: false,
-    formId: '',
-    holdingsMode: 'Auto'
+  const [catalogingSession, setCatalogingSession] = useState<CatalogingSession>(() => {
+      const saved = localStorage.getItem('catalogingSession');
+      return saved ? JSON.parse(saved) : {
+        activeTab: 'Search',
+        viewMode: 'List',
+        detailTab: 'Edit',
+        searchQuery: '',
+        advSearch: { title: '', author: '', isbn: '', callNo: '' },
+        searchBarcode: '',
+        searchType: 'Basic',
+        searchResultsIds: [],
+        selectedBookId: null,
+        bibFormData: {},
+        isEditMode: false,
+        formId: '',
+        holdingsMode: 'Auto'
+      };
   });
+
+  // Save sessions to localStorage whenever they change
+  useEffect(() => {
+      localStorage.setItem('circulationSession', JSON.stringify(circulationSession));
+  }, [circulationSession]);
+
+  useEffect(() => {
+      localStorage.setItem('catalogingSession', JSON.stringify(catalogingSession));
+  }, [catalogingSession]);
 
   // --- API INTEGRATION ---
   const refreshData = async () => {

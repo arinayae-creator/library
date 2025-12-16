@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowRightLeft, User, BookOpen, Search, Check, Wifi, UserPlus, History, Upload, CalendarOff, Edit, Trash2, X, Save, ChevronsUp, DollarSign, AlertCircle, CreditCard, PlusCircle, MinusCircle, Filter, Calendar, Clock, RefreshCw, Image as ImageIcon, Bookmark, Camera, BellRing, ArrowRight, Receipt, FileClock, XCircle } from 'lucide-react';
+import { ArrowRightLeft, User, BookOpen, Search, Check, Wifi, UserPlus, History, Upload, CalendarOff, Edit, Trash2, X, Save, ChevronsUp, DollarSign, AlertCircle, CreditCard, PlusCircle, MinusCircle, Filter, Calendar, Clock, RefreshCw, Image as ImageIcon, Bookmark, Camera, BellRing, ArrowRight, Receipt, FileClock, XCircle, AlertTriangle } from 'lucide-react';
 import { Patron, Transaction, Book, FineTransaction } from '../types';
 import { useLibrary } from '../context/LibraryContext';
 
@@ -8,22 +8,24 @@ import { useLibrary } from '../context/LibraryContext';
 declare const Swal: any;
 
 const Circulation: React.FC = () => {
-  const { books, patrons, updateBookDetails, addPatron, updatePatron, deletePatron, addTransaction, returnBook, renewLoan, patronGroups } = useLibrary();
+  const { books, patrons, updateBookDetails, addPatron, updatePatron, deletePatron, addTransaction, returnBook, renewLoan, patronGroups, circulationSession, updateCirculationSession } = useLibrary();
 
-  const [activeTab, setActiveTab] = useState<'Service' | 'Patrons'>('Service');
-  const [subTab, setSubTab] = useState<'List' | 'Promotion'>('List');
-  const [mode, setMode] = useState<'Checkout' | 'Checkin'>('Checkout');
-  
-  // Service State
-  const [patronId, setPatronId] = useState('');
-  const [itemId, setItemId] = useState('');
-  const [currentPatron, setCurrentPatron] = useState<Patron | null>(null);
-  const [scannedItems, setScannedItems] = useState<Transaction[]>([]); // Just for display in session
-  
-  // Right Panel Tab State
-  const [rightPanelTab, setRightPanelTab] = useState<'Active' | 'History' | 'Fines'>('Active');
-  
-  // Fine & Payment State
+  // Use session state from context
+  const { activeTab, subTab, mode, checkoutScannedItems, checkinScannedItems, rightPanelTab, patronIdInput: patronId, itemIdInput: itemId, currentPatronId } = circulationSession;
+
+  // Derived state for current patron (always fresh from patrons list)
+  const currentPatron = currentPatronId ? patrons.find(p => p.id === currentPatronId) || null : null;
+
+  // Helpers to update session state
+  const setActiveTab = (val: 'Service' | 'Patrons') => updateCirculationSession({ activeTab: val });
+  const setSubTab = (val: 'List' | 'Promotion') => updateCirculationSession({ subTab: val });
+  const setMode = (val: 'Checkout' | 'Checkin') => updateCirculationSession({ mode: val });
+  const setPatronId = (val: string) => updateCirculationSession({ patronIdInput: val });
+  const setItemId = (val: string) => updateCirculationSession({ itemIdInput: val });
+  const setRightPanelTab = (val: 'Active' | 'History' | 'Fines') => updateCirculationSession({ rightPanelTab: val });
+  const setCurrentPatronId = (id: string | null) => updateCirculationSession({ currentPatronId: id });
+
+  // Fine & Payment State (Local UI state is fine for modal)
   const [fineAmountInput, setFineAmountInput] = useState<string>('');
   const [showFineModal, setShowFineModal] = useState(false);
   const [fineAction, setFineAction] = useState<'Pay' | 'Add'>('Pay');
@@ -53,14 +55,6 @@ const Circulation: React.FC = () => {
   const [dragStartIndex, setDragStartIndex] = useState<number | null>(null);
   const [dragEndIndex, setDragEndIndex] = useState<number | null>(null);
 
-  // Update currentPatron when global patrons state changes
-  useEffect(() => {
-      if (currentPatron) {
-          const updated = patrons.find(p => p.id === currentPatron.id);
-          if (updated) setCurrentPatron(updated);
-      }
-  }, [patrons, currentPatron]); 
-
   // --- Helper: Date Parsing ---
   const parseThaiDate = (dateStr: string): Date => {
       const [d, m, y] = dateStr.split('/').map(Number);
@@ -73,6 +67,19 @@ const Circulation: React.FC = () => {
       const today = new Date();
       today.setHours(0, 0, 0, 0); 
       return today > due;
+  };
+
+  const isNearingDueDate = (dueDateStr: string): boolean => {
+      if (!dueDateStr) return false;
+      const due = parseThaiDate(dueDateStr);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); 
+      
+      const diffTime = due.getTime() - today.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      // Check if due within next 3 days (including today), but not overdue
+      return diffDays >= 0 && diffDays <= 3;
   };
 
   // Find due date of a book if it is checked out by anyone
@@ -89,7 +96,7 @@ const Circulation: React.FC = () => {
     e.preventDefault();
     const found = patrons.find(p => p.id === patronId || (p.name && p.name.includes(patronId)));
     if (found) {
-        setCurrentPatron(found);
+        setCurrentPatronId(found.id);
         setPatronId('');
     } else {
         alert('ไม่พบข้อมูลสมาชิก');
@@ -97,7 +104,7 @@ const Circulation: React.FC = () => {
   };
 
   const handleSelectPatronFromList = (patron: Patron) => {
-      setCurrentPatron(patron);
+      setCurrentPatronId(patron.id);
       setActiveTab('Service');
       setMode('Checkout');
   };
@@ -228,7 +235,8 @@ const Circulation: React.FC = () => {
         ) || [];
         updateBookDetails({ ...book, items: updatedItems, status: 'Checked Out' }); // Update main status too if needed
         
-        setScannedItems([newTx, ...scannedItems]);
+        // Update session history
+        updateCirculationSession({ checkoutScannedItems: [newTx, ...checkoutScannedItems] });
         setItemId('');
 
         const Toast = Swal.mixin({
@@ -354,18 +362,20 @@ const Circulation: React.FC = () => {
           }
       }
 
-      // UI Updates
+      // Update session history
       const p = patrons.find(p => p.id === pId); 
       const tx = p?.history.find(t => t.id === txId);
       
-      setScannedItems([{
+      const returnedTx = {
           id: txId,
           bookTitle: tx?.bookTitle || 'Unknown Book',
           patronName: p?.name || 'Unknown Patron',
           dueDate: tx?.dueDate || '',
-          status: 'Returned',
+          status: 'Returned' as const,
           fineAmount: fine
-      } as Transaction, ...scannedItems]);
+      } as Transaction;
+
+      updateCirculationSession({ checkinScannedItems: [returnedTx, ...checkinScannedItems] });
 
       setItemId('');
       setCheckinAlert(null);
@@ -385,7 +395,7 @@ const Circulation: React.FC = () => {
           // Re-fetch patron to get updated fine status
           const updatedPatron = patrons.find(x => x.id === checkinAlert.patron.id);
           if (updatedPatron) {
-              setCurrentPatron(updatedPatron);
+              setCurrentPatronId(updatedPatron.id);
               setMode('Checkout'); 
               openFineModal('Pay'); 
           }
@@ -450,7 +460,7 @@ const Circulation: React.FC = () => {
 
   const handleSwitchToHoldPatron = () => {
       if (checkinHoldAlert) {
-          setCurrentPatron(checkinHoldAlert.patron);
+          setCurrentPatronId(checkinHoldAlert.patron.id);
           setMode('Checkout');
           setItemId(checkinHoldAlert.bookId); // Pre-fill for checkout
           setCheckinHoldAlert(null);
@@ -711,6 +721,10 @@ const Circulation: React.FC = () => {
 
   const overdueItemsCount = currentPatron 
     ? currentPatron.history.filter(h => h.status === 'Active' && isOverdue(h.dueDate)).length 
+    : 0;
+
+  const nearingDueItemsCount = currentPatron
+    ? currentPatron.history.filter(h => h.status === 'Active' && isNearingDueDate(h.dueDate)).length
     : 0;
 
   return (
@@ -1019,7 +1033,7 @@ const Circulation: React.FC = () => {
                                                 <p className="text-slate-600">{currentPatron.type} ({currentPatron.group})</p>
                                                 <p className="text-xs text-slate-400">ID: {currentPatron.id}</p>
                                             </div>
-                                            <button onClick={() => { setCurrentPatron(null); setPatronId(''); setScannedItems([]); }} className="text-xs text-slate-500 hover:underline border border-slate-300 px-2 py-1 rounded bg-white">เปลี่ยน</button>
+                                            <button onClick={() => { setCurrentPatronId(null); setPatronId(''); }} className="text-xs text-slate-500 hover:underline border border-slate-300 px-2 py-1 rounded bg-white">เปลี่ยน</button>
                                         </div>
 
                                         {currentPatron.status === 'Expired' && (
@@ -1058,6 +1072,16 @@ const Circulation: React.FC = () => {
                                                 <div>
                                                     <span className="font-bold">มีค่าปรับค้างชำระ</span>
                                                     <p className="text-xs mt-1">ยอดรวม {currentPatron.finesOwed} บาท</p>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {nearingDueItemsCount > 0 && (
+                                            <div className="mt-2 bg-yellow-100 text-yellow-800 p-3 rounded-lg text-sm flex items-start gap-2 border border-yellow-200">
+                                                <AlertTriangle className="w-5 h-5 shrink-0" />
+                                                <div>
+                                                    <span className="font-bold">ใกล้กำหนดคืน (Near Due)</span>
+                                                    <p className="text-xs mt-1">มี {nearingDueItemsCount} รายการ ครบกำหนดใน 3 วัน</p>
                                                 </div>
                                             </div>
                                         )}
@@ -1181,18 +1205,20 @@ const Circulation: React.FC = () => {
                                                             currentPatron.history.filter(h => h.status === 'Active').map(h => {
                                                                 const lateFine = calculateLateFine(h.dueDate);
                                                                 const overdue = isOverdue(h.dueDate);
+                                                                const nearing = isNearingDueDate(h.dueDate);
                                                                 return (
-                                                                    <tr key={h.id} className={`hover:bg-slate-50 ${overdue ? 'bg-red-50/30' : ''}`}>
+                                                                    <tr key={h.id} className={`hover:bg-slate-50 ${overdue ? 'bg-red-50/30' : nearing ? 'bg-yellow-50/50' : ''}`}>
                                                                         <td className="p-3 font-mono text-slate-500">{h.barcode || '-'}</td>
                                                                         <td className="p-3">
                                                                             <div className="font-medium">{h.bookTitle}</div>
                                                                             <div className="text-xs text-slate-400">{h.checkoutDate}</div>
                                                                         </td>
                                                                         <td className="p-3">
-                                                                            <div className={`font-medium ${overdue ? 'text-red-600' : 'text-slate-600'}`}>
+                                                                            <div className={`font-medium ${overdue ? 'text-red-600' : nearing ? 'text-yellow-600' : 'text-slate-600'}`}>
                                                                                 {h.dueDate}
                                                                             </div>
                                                                             {overdue && <span className="text-xs text-red-500 font-bold">เกินกำหนด</span>}
+                                                                            {nearing && !overdue && <span className="text-xs text-yellow-600 font-bold">ใกล้กำหนด</span>}
                                                                         </td>
                                                                         <td className="p-3">
                                                                             {lateFine > 0 ? <span className="text-red-600 font-bold bg-red-50 px-2 py-1 rounded">฿{lateFine}</span> : <span className="text-slate-400">-</span>}
@@ -1363,8 +1389,11 @@ const Circulation: React.FC = () => {
                             <>
                                 <div className="bg-slate-50 p-4 border-b border-slate-200 flex justify-between items-center">
                                     <h3 className="font-bold text-slate-700">รายการปัจจุบัน ({mode === 'Checkout' ? 'กำลังยืม' : 'กำลังคืน'})</h3>
-                                    {scannedItems.length > 0 && (
-                                        <button onClick={() => setScannedItems([])} className="text-xs text-red-500 hover:underline">ล้างรายการ</button>
+                                    {mode === 'Checkout' && checkoutScannedItems.length > 0 && (
+                                        <button onClick={() => updateCirculationSession({ checkoutScannedItems: [] })} className="text-xs text-red-500 hover:underline">ล้างรายการ</button>
+                                    )}
+                                    {mode === 'Checkin' && checkinScannedItems.length > 0 && (
+                                        <button onClick={() => updateCirculationSession({ checkinScannedItems: [] })} className="text-xs text-red-500 hover:underline">ล้างรายการ</button>
                                     )}
                                 </div>
                                 <div className="flex-1 overflow-y-auto">
@@ -1373,12 +1402,12 @@ const Circulation: React.FC = () => {
                                             <tr>
                                                 <th className="p-3 pl-4">รายการ</th>
                                                 <th className="p-3">สมาชิก</th>
-                                                <th className="p-3">กำหนดส่ง</th>
+                                                <th className="p-3">กำหนดส่ง{mode === 'Checkin' ? '/คืน' : ''}</th>
                                                 <th className="p-3 text-right pr-4">สถานะ</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y">
-                                            {scannedItems.map((item) => (
+                                            {(mode === 'Checkout' ? checkoutScannedItems : checkinScannedItems).map((item) => (
                                                 <tr key={item.id} className="hover:bg-slate-50">
                                                     <td className="p-3 pl-4 font-medium">{item.bookTitle}</td>
                                                     <td className="p-3 text-slate-600">{item.patronName}</td>
@@ -1390,7 +1419,7 @@ const Circulation: React.FC = () => {
                                                     </td>
                                                 </tr>
                                             ))}
-                                            {scannedItems.length === 0 && (
+                                            {(mode === 'Checkout' ? checkoutScannedItems : checkinScannedItems).length === 0 && (
                                                 <tr>
                                                     <td colSpan={4} className="p-8 text-center text-slate-400">
                                                         <div className="flex flex-col items-center">

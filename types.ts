@@ -58,6 +58,7 @@ export interface Item {
   callNumber?: string; // Specific call number if different
   price?: number;
   acquiredDate?: string;
+  note?: string; // For notes like who lost the book
 }
 
 export interface FineTransaction {
@@ -158,7 +159,8 @@ export interface CirculationSession {
   activeTab: 'Service' | 'Patrons';
   subTab: 'List' | 'Promotion';
   currentPatronId: string | null;
-  scannedItems: Transaction[];
+  checkoutScannedItems: Transaction[];
+  checkinScannedItems: Transaction[];
   itemIdInput: string;
   patronIdInput: string;
   rightPanelTab: 'Active' | 'History' | 'Fines' | 'Holds';
