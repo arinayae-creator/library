@@ -58,7 +58,6 @@ export interface Item {
   callNumber?: string; // Specific call number if different
   price?: number;
   acquiredDate?: string;
-  note?: string; // For notes like who lost the book
 }
 
 export interface FineTransaction {

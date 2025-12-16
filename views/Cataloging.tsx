@@ -126,7 +126,6 @@ const Cataloging: React.FC = () => {
   const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
   const [tempEditBarcode, setTempEditBarcode] = useState('');
   const [tempEditStatus, setTempEditStatus] = useState('');
-  const [tempEditNote, setTempEditNote] = useState('');
 
   // Management Views (Modals)
   const [showMarcModal, setShowMarcModal] = useState(false);
@@ -145,7 +144,6 @@ const Cataloging: React.FC = () => {
           case 'Checked Out': return 'ถูกยืมออก';
           case 'Shelving Cart': return 'อยู่บนรถเข็น (รอขึ้นชั้น)';
           case 'Lost': return 'สูญหาย';
-          case 'Missing': return 'สูญหายจากชั้นวางหนังสือ';
           case 'Repair': return 'ชำรุด/รอซ่อม';
           case 'Processing': return 'รอติด QR code';
           case 'Reserved': return 'ถูกจอง';
@@ -160,7 +158,6 @@ const Cataloging: React.FC = () => {
           case 'Checked Out': return 'bg-blue-100 text-blue-700 border-blue-200';
           case 'Reserved': return 'bg-orange-100 text-orange-700 border-orange-200';
           case 'Lost': return 'bg-red-100 text-red-700 border-red-200';
-          case 'Missing': return 'bg-red-50 text-red-600 border-red-100';
           case 'Repair': return 'bg-slate-200 text-slate-600 border-slate-300';
           case 'Processing': return 'bg-purple-100 text-purple-700 border-purple-200';
           default: return 'bg-gray-100 text-gray-700';
@@ -733,7 +730,6 @@ const Cataloging: React.FC = () => {
       setEditingItemIndex(index);
       setTempEditBarcode(item.barcode);
       setTempEditStatus(item.status);
-      setTempEditNote(item.note || '');
   };
 
   const handleSaveEditItem = (index: number) => {
@@ -751,8 +747,7 @@ const Cataloging: React.FC = () => {
       newItems[index] = { 
           ...newItems[index], 
           barcode: tempEditBarcode,
-          status: tempEditStatus,
-          note: tempEditNote 
+          status: tempEditStatus 
       };
       
       const updatedBook = { ...selectedBook, items: newItems };
@@ -762,7 +757,6 @@ const Cataloging: React.FC = () => {
       setEditingItemIndex(null);
       setTempEditBarcode('');
       setTempEditStatus('');
-      setTempEditNote('');
       const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 1500 });
       Toast.fire({ icon: 'success', title: 'แก้ไขเรียบร้อย' });
   };
@@ -2012,43 +2006,276 @@ const Cataloging: React.FC = () => {
                                                 </td>
                                                 <td className="px-4 py-3">
                                                     {editingItemIndex === idx ? (
-                                                        <div className="space-y-2">
-                                                            <select
-                                                                className="border rounded px-2 py-1 text-sm w-full bg-white shadow-inner"
-                                                                value={tempEditStatus}
-                                                                onChange={e => setTempEditStatus(e.target.value)}
-                                                            >
-                                                                <option value="Available">อยู่บนชั้น</option>
-                                                                <option value="Checked Out">ถูกยืมออก</option>
-                                                                <option value="Shelving Cart">อยู่บนรถเข็น (รอขึ้นชั้น)</option>
-                                                                <option value="Lost">สูญหาย</option>
-                                                                <option value="Missing">สูญหายจากชั้นวางหนังสือ</option>
-                                                                <option value="Repair">ชำรุด/รอซ่อม</option>
-                                                                <option value="Processing">รอติด QR code</option>
-                                                            </select>
-                                                            {tempEditStatus === 'Lost' && (
-                                                                <input 
-                                                                    type="text" 
-                                                                    placeholder="ระบุชื่อผู้ทำหาย/สาเหตุ..." 
-                                                                    className="border rounded px-2 py-1 text-xs w-full bg-red-50"
-                                                                    value={tempEditNote}
-                                                                    onChange={e => setTempEditNote(e.target.value)}
-                                                                />
-                                                            )}
-                                                        </div>
+                                                        <select
+                                                            className="border rounded px-2 py-1 text-sm w-full bg-white shadow-inner"
+                                                            value={tempEditStatus}
+                                                            onChange={e => setTempEditStatus(e.target.value)}
+                                                        >
+                                                            <option value="Available">อยู่บนชั้น</option>
+                                                            <option value="Checked Out">ถูกยืมออก</option>
+                                                            <option value="Shelving Cart">อยู่บนรถเข็น (รอขึ้นชั้น)</option>
+                                                            <option value="Lost">สูญหาย</option>
+                                                            <option value="Repair">ชำรุด/รอซ่อม</option>
+                                                            <option value="Processing">รอติด QR code</option>
+                                                        </select>
                                                     ) : (
-                                                        <div>
-                                                            <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(item.status)}`}>
-                                                                {getStatusLabel(item.status)}
-                                                            </span>
-                                                            {item.status === 'Lost' && item.note && (
-                                                                <div className="text-xs text-red-500 mt-1">({item.note})</div>
-                                                            )}
-                                                        </div>
+                                                        <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(item.status)}`}>
+                                                            {getStatusLabel(item.status)}
+                                                        </span>
                                                     )}
                                                 </td>
                                                 <td className="px-4 py-3 text-slate-600">{item.location}</td>
                                                 <td className="px-4 py-3 text-right">
                                                     {editingItemIndex === idx ? (
                                                         <div className="flex justify-end gap-2">
-                                                            <button onClick={() => handleSaveEditItem(idx)} className="p-1 text-green-600 hover:bg-green-50 rounded"><Check className="
+                                                            <button onClick={() => handleSaveEditItem(idx)} className="p-1 text-green-600 hover:bg-green-50 rounded"><Check className="w-4 h-4"/></button>
+                                                            <button onClick={() => setEditingItemIndex(null)} className="p-1 text-slate-400 hover:bg-slate-100 rounded"><X className="w-4 h-4"/></button>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex justify-end gap-2">
+                                                            <button onClick={() => handleEditItem(idx, item)} className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded" title="แก้ไข"><Edit className="w-4 h-4"/></button>
+                                                            <button onClick={() => handleDeleteItem(idx)} className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded" title="ลบ"><Trash2 className="w-4 h-4"/></button>
+                                                        </div>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </>
+                )}
+            </div>
+          )}
+
+          {activeTab === 'Authority' && (
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm h-full flex flex-col animate-fadeIn overflow-hidden">
+                  <div className="p-6 border-b bg-slate-50">
+                      <h3 className="font-bold text-lg flex items-center gap-2 text-slate-800"><Key className="w-5 h-5 text-accent"/> การควบคุมรายการหลักฐาน (Authority Control)</h3>
+                      <p className="text-slate-500 text-sm mt-1">จัดการข้อมูลผู้แต่ง, สำนักพิมพ์, ชื่อชุด, และหัวเรื่อง เพื่อความเป็นมาตรฐาน</p>
+                  </div>
+                  
+                  {/* DETAIL VIEW MODE */}
+                  {selectedAuthority ? (
+                      <div className="flex-1 flex flex-col h-full animate-fadeIn">
+                          <div className="p-4 border-b bg-white flex items-center gap-4">
+                              <button onClick={() => setSelectedAuthority(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-600 transition-colors">
+                                  <ArrowLeft className="w-6 h-6"/>
+                              </button>
+                              <div>
+                                  <h4 className="text-xl font-bold text-slate-800">{selectedAuthority.name}</h4>
+                                  <span className="text-xs bg-slate-100 text-slate-500 px-2 py-1 rounded-full">{selectedAuthority.type}</span>
+                              </div>
+                          </div>
+                          <div className="flex-1 p-6 overflow-y-auto bg-slate-50">
+                              <h5 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><BookOpen className="w-4 h-4"/> รายการหนังสือที่เกี่ยวข้อง ({getBooksByAuthority(selectedAuthority.type, selectedAuthority.name).length})</h5>
+                              <div className="space-y-3">
+                                  {getBooksByAuthority(selectedAuthority.type, selectedAuthority.name).length > 0 ? (
+                                      getBooksByAuthority(selectedAuthority.type, selectedAuthority.name).map(book => (
+                                          <div key={book.id} className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex gap-4 hover:shadow-md transition-shadow cursor-pointer" onClick={() => { setSelectedBook(book); setActiveTab('Search'); }}>
+                                              <div className="w-16 h-24 bg-slate-200 rounded overflow-hidden flex-shrink-0">
+                                                  {book.coverUrl ? <img src={book.coverUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><ImageIcon className="w-6 h-6"/></div>}
+                                              </div>
+                                              <div className="flex-1">
+                                                  <h4 className="font-bold text-slate-800 text-lg mb-1">{book.title}</h4>
+                                                  <p className="text-slate-500 text-sm mb-2">{book.author}</p>
+                                                  <div className="flex gap-3 text-xs text-slate-400">
+                                                      <span className="bg-slate-100 px-2 py-1 rounded">Call No: {book.callNumber}</span>
+                                                      <span className={`px-2 py-1 rounded border ${getStatusColor(book.status)}`}>{getStatusLabel(book.status)}</span>
+                                                  </div>
+                                              </div>
+                                              <div className="flex items-center">
+                                                  <ArrowRight className="w-5 h-5 text-slate-300"/>
+                                              </div>
+                                          </div>
+                                      ))
+                                  ) : (
+                                      <div className="text-center py-12 text-slate-400">ไม่พบรายการหนังสือ</div>
+                                  )}
+                              </div>
+                          </div>
+                      </div>
+                  ) : (
+                      /* LIST VIEW MODE (Default) */
+                      <div className="flex-1 flex flex-col md:flex-row h-full min-h-0">
+                          {/* Left Sidebar */}
+                          <div className="w-full md:w-64 bg-slate-50 border-r border-slate-200 p-4 overflow-y-auto">
+                              <nav className="space-y-2">
+                                  <button onClick={() => setAuthorityType('Author')} className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-colors ${authorityType === 'Author' ? 'bg-white shadow-sm text-accent font-medium' : 'text-slate-600 hover:bg-white hover:shadow-sm'}`}>
+                                      <Users className="w-4 h-4"/> ชื่อผู้แต่ง (Authors)
+                                  </button>
+                                  <button onClick={() => setAuthorityType('Publisher')} className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-colors ${authorityType === 'Publisher' ? 'bg-white shadow-sm text-accent font-medium' : 'text-slate-600 hover:bg-white hover:shadow-sm'}`}>
+                                      <Building2 className="w-4 h-4"/> สำนักพิมพ์ (Publishers)
+                                  </button>
+                                  <button onClick={() => setAuthorityType('Series')} className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-colors ${authorityType === 'Series' ? 'bg-white shadow-sm text-accent font-medium' : 'text-slate-600 hover:bg-white hover:shadow-sm'}`}>
+                                      <Library className="w-4 h-4"/> ชื่อชุด (Series)
+                                  </button>
+                                  <button onClick={() => setAuthorityType('Subject')} className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-colors ${authorityType === 'Subject' ? 'bg-white shadow-sm text-accent font-medium' : 'text-slate-600 hover:bg-white hover:shadow-sm'}`}>
+                                      <Hash className="w-4 h-4"/> หัวเรื่อง (Subjects)
+                                  </button>
+                              </nav>
+                          </div>
+                          
+                          {/* Main Content List */}
+                          <div className="flex-1 p-6 overflow-y-auto flex flex-col">
+                              <div className="flex justify-between items-center mb-4">
+                                  <h4 className="font-bold text-slate-700 text-lg">รายการ{authorityType === 'Author' ? 'ชื่อผู้แต่ง' : authorityType === 'Publisher' ? 'สำนักพิมพ์' : authorityType === 'Series' ? 'ชื่อชุด' : 'หัวเรื่อง'}ทั้งหมด</h4>
+                                  <div className="relative">
+                                      <input 
+                                          type="text" 
+                                          placeholder={`ค้นหา${authorityType === 'Author' ? 'ชื่อผู้แต่ง' : 'ข้อมูล'}...`} 
+                                          className="border rounded-lg pl-9 pr-3 py-2 text-sm w-64 focus:ring-2 focus:ring-accent outline-none"
+                                          value={authoritySearch}
+                                          onChange={(e) => setAuthoritySearch(e.target.value)}
+                                      />
+                                      <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"/>
+                                  </div>
+                              </div>
+                              
+                              <div className="border rounded-lg overflow-hidden flex-1 bg-white shadow-sm">
+                                  <table className="w-full text-left text-sm">
+                                      <thead className="bg-slate-100 text-slate-600 font-medium">
+                                          <tr>
+                                              <th className="px-6 py-3 w-16 text-center">#</th>
+                                              <th className="px-6 py-3">รายการ (Heading)</th>
+                                              <th className="px-6 py-3">
+                                                  {authorityType === 'Author' ? 'เลขผู้แต่ง (Cutter)' : 
+                                                  authorityType === 'Publisher' ? 'สถานที่พิมพ์ (Place)' : 
+                                                  authorityType === 'Subject' ? 'เลขหมู่ (Dewey)' : 'ข้อมูลประกอบ'}
+                                              </th>
+                                              <th className="px-6 py-3 text-center">จำนวนที่ใช้</th>
+                                              <th className="px-6 py-3 w-24 text-center">จัดการ</th>
+                                          </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-slate-100">
+                                          {getAuthorityData().length === 0 ? (
+                                              <tr><td colSpan={5} className="p-8 text-center text-slate-400">ไม่พบข้อมูลรายการหลักฐาน</td></tr>
+                                          ) : (
+                                              getAuthorityData().map((item, idx) => (
+                                                  <tr key={idx} className="hover:bg-slate-50 group cursor-pointer" onClick={() => setSelectedAuthority({ type: authorityType, name: item.name })}>
+                                                      <td className="px-6 py-3 text-center text-slate-400">{idx + 1}</td>
+                                                      <td className="px-6 py-3 font-medium text-slate-800 hover:text-accent">{item.name}</td>
+                                                      <td className="px-6 py-3 text-slate-500 font-mono text-xs">{item.info}</td>
+                                                      <td className="px-6 py-3 text-center"><span className="bg-blue-100 text-blue-700 px-2 py-1 rounded-full text-xs font-bold">{item.count}</span></td>
+                                                      <td className="px-6 py-3 text-center">
+                                                          <button className="text-slate-400 hover:text-accent p-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); handleEditAuthority(authorityType, item.name); }}><Edit className="w-4 h-4"/></button>
+                                                      </td>
+                                                  </tr>
+                                              ))
+                                          )}
+                                      </tbody>
+                                  </table>
+                              </div>
+                          </div>
+                      </div>
+                  )}
+              </div>
+          )}
+
+          {activeTab === 'Import' && (
+             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                <div className="text-center text-slate-500 py-12">
+                     <p>นำเข้าข้อมูล (Import)</p>
+                     <p className="text-xs mt-2">เครื่องมือนำเข้าไฟล์ Excel/MARC...</p>
+                </div>
+            </div>
+          )}
+      </div>
+
+      {/* Add MARC Field Modal (Enhanced) */}
+      {showAddMarcFieldModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-xl shadow-lg w-full max-w-md p-6 animate-fadeIn">
+                  <div className="flex justify-between items-center mb-4">
+                      <h3 className="font-bold text-lg flex items-center gap-2"><PlusCircle className="w-5 h-5 text-blue-600"/> เพิ่มฟิลด์ MARC</h3>
+                      <button onClick={() => setShowAddMarcFieldModal(false)}><X className="w-5 h-5 text-slate-400 hover:text-red-500"/></button>
+                  </div>
+                  <div className="space-y-4">
+                      <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-1">ประเภททรัพยากร</label>
+                          <select className="w-full border rounded px-3 py-2 text-sm bg-white" value={newFieldData.resourceType} onChange={e => setNewFieldData({...newFieldData, resourceType: e.target.value})}>{resourceTypes.map(type => (<option key={type} value={type}>{type}</option>))}</select>
+                      </div>
+                      <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-1">แท็ก (Tag)</label>
+                          <select className="w-full border rounded px-3 py-2 text-sm font-mono" value={newFieldData.tag} onChange={handleTagSelect}>
+                              <option value="">-- เลือก Tag (จาก Admin) --</option>
+                              {marcTags.map(t => (<option key={t.tag} value={t.tag}>{t.tag} - {t.desc}</option>))}
+                          </select>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                           <div>
+                              <label className="block text-sm font-bold text-slate-700 mb-1">รหัสฟิลด์ย่อย</label>
+                              <input type="text" className="w-full border rounded px-3 py-2 text-sm font-mono bg-slate-50" value={newFieldData.subfield} onChange={e => setNewFieldData({...newFieldData, subfield: e.target.value})} />
+                          </div>
+                          <div>
+                              <label className="block text-sm font-bold text-slate-700 mb-1">รายละเอียด</label>
+                              <input type="text" className="w-full border rounded px-3 py-2 text-sm bg-slate-50" value={newFieldData.desc} onChange={e => setNewFieldData({...newFieldData, desc: e.target.value})} />
+                          </div>
+                      </div>
+                       <div className="flex items-center gap-2 mt-2">
+                          <input type="checkbox" checked={newFieldData.mandatory} onChange={e => setNewFieldData({...newFieldData, mandatory: e.target.checked})} className="rounded text-blue-600" />
+                          <label className="text-sm text-slate-700">ตั้งเป็นฟิลด์บังคับ</label>
+                      </div>
+                      <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-1">รูปแบบช่องกรอกข้อมูล</label>
+                          <div className="flex gap-4">
+                              <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="inputType" value="single" checked={newFieldData.inputType === 'single'} onChange={() => setNewFieldData({...newFieldData, inputType: 'single'})} /><span className="text-sm">บรรทัดเดียว</span></label>
+                               <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="inputType" value="multi" checked={newFieldData.inputType === 'multi'} onChange={() => setNewFieldData({...newFieldData, inputType: 'multi'})} /><span className="text-sm">หลายบรรทัด</span></label>
+                          </div>
+                      </div>
+                      <button onClick={saveNewMarcField} disabled={!newFieldData.tag} className="w-full bg-blue-600 text-white py-2 rounded font-bold hover:bg-blue-700 mt-4 disabled:bg-slate-300">เพิ่มฟิลด์</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* MARC Modal (View/Edit Raw) */}
+      {showMarcModal && selectedBook && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-xl shadow-lg w-full max-w-2xl p-6 animate-fadeIn h-3/4 flex flex-col">
+                  <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-lg flex items-center gap-2"><Code className="w-5 h-5"/> แก้ไขระเบียน MARC (Edit MARC)</h3><button onClick={() => setShowMarcModal(false)}><X className="w-5 h-5"/></button></div>
+                  <div className="flex-1 bg-slate-900 text-green-400 font-mono p-4 rounded-lg overflow-auto text-sm">
+                      <p>LDR  00000nam a2200000 a 4500</p>
+                      <p>001  {selectedBook.id}</p>
+                      <p>008  250220s{selectedBook.pubYear || 'xxxx'}    th a     b    001 0 tha d</p>
+                      <p>020  $a {selectedBook.isbn}</p>
+                      <p>050  00 $a {selectedBook.callNumber}</p>
+                      <p>100  1  $a {selectedBook.author}</p>
+                      <p>245  10 $a {selectedBook.title}</p>
+                      <p>260     $b {selectedBook.publisher} $c {selectedBook.pubYear}</p>
+                      <p>300     $a {selectedBook.pages}</p>
+                      <p>650   0 $a {selectedBook.subject}</p>
+                      <p>990     $a {selectedBook.items?.length || 0} copies</p>
+                  </div>
+                  <div className="mt-4 flex justify-end"><button onClick={() => setShowMarcModal(false)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded text-slate-700">ปิด</button></div>
+              </div>
+          </div>
+      )}
+      
+      {/* History Modal & Holds Modal (Same as before) ... */}
+      {showHistoryModal && selectedBook && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-xl shadow-lg w-full max-w-2xl p-6 animate-fadeIn flex flex-col max-h-[80vh]">
+                  <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-lg flex items-center gap-2"><History className="w-5 h-5"/> ประวัติการยืม-คืน: {selectedBook.title}</h3><button onClick={() => setShowHistoryModal(false)}><X className="w-5 h-5"/></button></div>
+                  <div className="flex-1 overflow-auto"><table className="w-full text-sm text-left"><thead className="bg-slate-100 text-slate-600"><tr><th className="px-4 py-2">วันที่ยืม</th><th className="px-4 py-2">วันที่คืน</th><th className="px-4 py-2">ผู้ยืม</th><th className="px-4 py-2">สถานะ</th></tr></thead><tbody className="divide-y">{getBookLoanHistory(selectedBook).map((tx, i) => (<tr key={i} className="hover:bg-slate-50"><td className="px-4 py-2">{tx.checkoutDate}</td><td className="px-4 py-2">{tx.returnDate || '-'}</td><td className="px-4 py-2">{tx.patronName}</td><td className="px-4 py-2"><span className={`px-2 py-1 rounded-full text-xs ${tx.status === 'Returned' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>{translateStatus(tx.status)}</span></td></tr>))}{getBookLoanHistory(selectedBook).length === 0 && <tr><td colSpan={4} className="p-4 text-center text-slate-400">ไม่พบประวัติการยืม</td></tr>}</tbody></table></div>
+                  <div className="mt-4 flex justify-end"><button onClick={() => setShowHistoryModal(false)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded text-slate-700">ปิด</button></div>
+              </div>
+          </div>
+      )}
+
+      {showHoldsModal && selectedBook && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-xl shadow-lg w-full max-w-3xl p-6 animate-fadeIn flex flex-col max-h-[80vh]">
+                  <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-lg flex items-center gap-2"><Bookmark className="w-5 h-5"/> ประวัติรายการจองย้อนหลังทั้งหมด: {selectedBook.title}</h3><button onClick={() => setShowHoldsModal(false)}><X className="w-5 h-5"/></button></div>
+                  <div className="flex-1 overflow-auto">{getAllReservationHistory(selectedBook).length > 0 ? (<table className="w-full text-sm text-left"><thead className="bg-orange-100 text-orange-800 sticky top-0 z-10"><tr><th className="px-4 py-2">ชื่อผู้จอง</th><th className="px-4 py-2">วันที่จอง</th><th className="px-4 py-2">สถานะการจอง</th><th className="px-4 py-2">วันที่ดำเนินการ (Action Date)</th></tr></thead><tbody className="divide-y">{getAllReservationHistory(selectedBook).map((h, i) => (<tr key={i} className="hover:bg-orange-50"><td className="px-4 py-2 font-medium text-slate-700">{h.patronName}</td><td className="px-4 py-2 text-slate-500">{h.date}</td><td className="px-4 py-2"><span className={`px-2 py-1 rounded-full text-xs font-medium ${h.status.includes('Active') ? 'bg-blue-100 text-blue-700' : h.status.includes('รับหนังสือแล้ว') ? 'bg-green-100 text-green-700' : h.status.includes('ยกเลิก') ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>{h.status}</span></td><td className="px-4 py-2 text-slate-500">{h.actionDate}</td></tr>))}</tbody></table>) : (<div className="p-10 text-center text-slate-400"><Bookmark className="w-12 h-12 mx-auto mb-2 opacity-20" /><p>ไม่มีประวัติการจองสำหรับหนังสือเล่มนี้</p></div>)}</div>
+                  <div className="mt-4 flex justify-end"><button onClick={() => setShowHoldsModal(false)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded text-slate-700">ปิด</button></div>
+              </div>
+          </div>
+      )}
+    </div>
+  );
+};
+
+
+export default Cataloging;
